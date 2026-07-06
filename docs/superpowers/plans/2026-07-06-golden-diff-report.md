@@ -1,25 +1,93 @@
-# Task 7 — Golden diff report (khớp Azota)
+# Task 7 / 7b — Golden diff report (khớp Azota)
 
-**Ngày:** 2026-07-06
+**Ngày:** 2026-07-06 (Task 7), cập nhật cùng ngày (Task 7b — knob restriction lifted)
 **File mẫu:** `ĐỀ VẬT LÍ LẦN 3_VER 2 (2).docx`
 **Oracle:** `tests/fixtures/golden_azota.txt` (237 dòng có nghĩa sau khi bỏ dòng trắng)
 
-## Kết quả
+## Kết quả cuối cùng (Task 7b)
 
-| | Tỉ lệ khớp dòng (`test_report_line_match_ratio`) |
+| Bước | Tỉ lệ khớp dòng |
 |---|---|
-| Trước khi tinh chỉnh | 159/237 = **67.1%** |
-| Sau khi tinh chỉnh   | 160/237 = **67.5%** |
-| Ngưỡng yêu cầu       | 70.0% |
+| Task 7 (3-knob, BLOCKED) | 160/237 = 67.5% |
+| 7b Fix 1 — whitespace-only bold segment (`runs.wrap`) | 163/237 = 68.8% |
+| 7b Fix 2 — strip bold trên label `Câu N`/`a)`..`d)` (`answer.is_paragraph_start_label` + `runs.emit`) | **184/237 = 77.6%** |
+| 7b Fix 3 — layout table flatten (`tables._is_layout_table`) | 184/237 = 77.6% (không đổi số dòng khớp tuyệt đối vì số placeholder lệch, nhưng đúng cấu trúc — xem ghi chú) |
+| 7b Fix 4 — block-equation newline grouping (Category 2) | **Không áp dụng** — không tìm được bằng chứng, xem bên dưới |
+| **Ngưỡng khoá lại** | `>= 0.75` (floor(0.776, 0.05)) |
 
-**Kết luận: BLOCKED.** Sau khi tinh chỉnh hết mức trong phạm vi 3 knob được phép
-(`runs.TAB_SPACES`, bộ đếm placeholder trong `context.py`/`assemble.py`, và
-strip option-marker trong `answer.py`), tỉ lệ khớp chỉ nhích từ 67.1% lên
-67.5% — chưa đạt 70%. Ngưỡng `>= 0.70` trong `tests/test_golden.py` được
-**giữ nguyên như plan yêu cầu** (không hạ thấp), nên
-`test_report_line_match_ratio` hiện đang **FAIL** một cách có chủ đích (đúng
-theo hướng dẫn "STOP and report BLOCKED rather than gaming the metric").
-18/19 test khác (bao gồm `test_key_anchors_present_in_order`) đều PASS.
+**Kết luận: DONE.** Toàn bộ 19 test đều PASS, bao gồm
+`test_report_line_match_ratio` (77.6% ≥ 0.75) và
+`test_key_anchors_present_in_order`.
+
+## Các thay đổi Task 7b (không còn giới hạn 3 knob)
+
+### Fix 1 — whitespace-only bold/italic segment (`runs.py::wrap`)
+
+Một run chỉ chứa khoảng trắng/tab nhưng có `w:b`/`w:i` từng bị bọc thành
+`[!b:$ $]` — rác không có trong golden. Sửa `wrap()`: nếu `text` rỗng hoặc
+chỉ chứa whitespace, trả về nguyên văn (không bọc tag), bất kể `fmt`.
+Ratio: 67.5% → 68.8%.
+
+### Fix 2 — strip bold trên label câu hỏi / ý con (`answer.py`, `runs.py::emit`)
+
+Kiểm tra thực tế cấu trúc run (dump XML) cho thấy:
+- `"Câu 1"` + `":"` là 2 run bold riêng, coalesce thành 1 segment `"Câu 1:"`
+  đứng ĐẦU đoạn (bold).
+- `"Câu 2."` là 1 run bold duy nhất, cũng đứng đầu đoạn.
+- Các label ý con `"a)"`..`"d)"` trong file mẫu này **đã sẵn plain** (không
+  bold) — nên rule cho chúng chủ yếu mang tính phòng thủ/tổng quát hoá,
+  không đổi hành vi trên file mẫu.
+- `"Nhóm I."`, `"PHẦN I..."`, `"[GT]"`, `"Chọn D."` xác nhận KHÔNG khớp 2
+  regex mới (`Câu\s+\d+\s*[.:]` và `[a-d]\)`) nên vẫn giữ bold — đã verify
+  bằng diff.
+
+Thêm `answer.is_paragraph_start_label(text)` (match TOÀN BỘ nội dung
+segment, không chỉ prefix — vì bằng chứng cho thấy label luôn là segment
+độc lập, không gộp thêm nội dung câu hỏi vào cùng format). Sửa `runs.emit`:
+segment đầu tiên (`idx == 0`) của đoạn, nếu khớp label, xuất plain thay vì
+`wrap()`. Ratio: 68.8% → **77.6%** (đóng góp lớn nhất, đúng như dự đoán
+trong nhóm 1 của báo cáo Task 7 gốc).
+
+### Fix 3 — layout table flatten (`tables.py`)
+
+Dump `w:tblPr/w:tblBorders` của 2 bảng trong file mẫu:
+- Bảng layout (`img_43`/`img_44`, 1 dòng 2 cột, mỗi cell chỉ chứa ảnh):
+  `tblBorders` với **tất cả 6 cạnh** (`top/left/bottom/right/insideH/insideV`)
+  đều `w:val="none"`.
+- Bảng dữ liệu thật (k / t°C / áp kế): **không có** `w:tblBorders` override
+  (dùng viền mặc định của table style) → tín hiệu phân biệt rõ ràng.
+
+Thêm `tables._is_layout_table(tbl)`: `True` khi có `tblBorders` VÀ tất cả 6
+cạnh đều `none`/`nil`. `render_table` khi layout → nối nội dung cell không
+rỗng bằng khoảng trắng (không bọc `[* | *]`), mỗi `w:tr` một dòng; bảng dữ
+liệu vẫn dùng `[* c1 | c2 *]` như cũ. Đã verify bảng `[* 0 | 27 | 0 *]` không
+đổi hành vi (anchor test vẫn pass).
+
+Ratio đo được không đổi (vẫn 77.6%) vì số placeholder `img_43`/`img_44` lệch
+so với `img_45`/`img_46` trong golden (do offset đếm còn tồn đọng — xem mục
+"còn lại" bên dưới) nên dòng vẫn không khớp tuyệt đối theo string — nhưng
+thay đổi này ĐÚNG về cấu trúc (không còn `[* | *]` bọc quanh 2 ảnh dàn cạnh
+nhau) và là fix bắt buộc theo yêu cầu task, giữ lại.
+
+### Fix 4 (Category 2) — GUARDED, KHÔNG ÁP DỤNG
+
+Giả thuyết: các công thức hiển thị liên tiếp (`m:oMathPara` hoặc `m:oMath`
+không có văn bản ngăn cách) trong cùng đoạn nên được tách dòng riêng.
+
+Đã điều tra lại bằng script dump trực tiếp cây `w:p`:
+- Không có đoạn nào trong file mẫu chứa ≥2 `m:oMathPara` là con trực tiếp.
+- Không có đoạn nào chứa 2 `m:oMath` là con trực tiếp LIÊN TIẾP nhau (không
+  có `w:r` xen giữa).
+- Không có đoạn nào chứa `m:oMath` — `w:r` (chỉ whitespace) — `m:oMath`
+  liên tiếp.
+- Các đoạn có ≥2 phần tử `m:oMath` trực tiếp đều có text ngăn cách rõ ràng
+  (vd `"A. <math> B. <math> C. <math> D. <math>"` — các marker phương án
+  A/B/C/D, không phải công thức "trần trụi" liên tiếp).
+
+Không tìm được bằng chứng cụ thể nào trong file mẫu để implement rule tách
+dòng mà không đoán mò. Theo đúng guard trong hướng dẫn ("REVERT nếu không
+có bằng chứng chắc chắn / không cải thiện") — **không thêm code cho
+Category 2**. Để lại v2, ưu tiên so sánh với đề khác để tìm quy luật thật.
 
 ## Các thay đổi đã áp dụng (trong phạm vi 3 knob)
 
@@ -68,83 +136,67 @@ mặc định hợp lý hơn cho `markup.txt` "thô" (không chuẩn hoá) — t
 rõ lý do trong comment của `runs.py`, không cố mô phỏng tab-stop chính xác
 (việc đó cần model font-metric, ngoài phạm vi task).
 
-## Các nhóm khác biệt còn lại (không sửa — ngoài phạm vi 3 knob)
+## Trạng thái các nhóm khác biệt sau Task 7b
 
-Phân tích 77 dòng golden còn thiếu sau khi áp dụng 3 thay đổi trên:
+Nhóm 1 (bold-label), 3 (layout table), 4 (whitespace-bold rác) đã **sửa** ở
+Task 7b (xem phần "Các thay đổi Task 7b" phía trên). Nhóm 2 đã điều tra lại
+nhưng **không tìm được bằng chứng** để implement an toàn. Nhóm 5, 6 **vẫn
+ngoài phạm vi** như kết luận gốc của Task 7. Chi tiết:
 
-1. **Bold-label bị Azota strip nhưng không phải option-marker A–D (~30 dòng,
-   nhóm lớn nhất).** Ký hiệu số câu `"Câu 1:"`, `"Câu 2."`... và ký hiệu ý
-   `"a)"`, `"b)"`, `"c)"`, `"d)"` đều được tô đậm (`w:b`) trong docx, nhưng
-   Azota xuất chúng dạng plain (không `[!b:]`) — trong khi `"Nhóm I."`,
-   `"Nhóm II."`, `"PHẦN I."` thì **vẫn giữ bold**. Đây là một quy tắc
-   whitelist khác (strip bold cho label câu/ý nhưng giữ cho label nhóm/phần),
-   nằm ngoài 3 knob được phép chỉnh (`answer.py` chỉ được mở rộng cho option
-   marker A–D theo đúng mô tả kế hoạch). Đã xác minh không có bằng chứng nào
-   trong kế hoạch cho phép mở rộng `is_option_marker` sang `"Câu N"`/`"a)"`
-   — để lại cho v2.
+1. ~~Bold-label bị Azota strip~~ — **ĐÃ SỬA** (Fix 2, xem trên). Đóng góp lớn
+   nhất vào ratio (68.8% → 77.6%).
 
-2. **Bộ đếm placeholder lệch thêm ở gần vị trí "44" và "60" (~38 dòng bị
-   ảnh hưởng theo).** Sau khi sửa offset đầu file, 41 placeholder đầu tiên
-   khớp tuyệt đối. Từ đó trở đi lệch thêm dần đúng như kế hoạch mô tả
-   ("skip 44", "skip 60"). Đã điều tra sâu: không tìm thấy phần tử OOXML
-   nào (oMath/drawing/object/AlternateContent) bị bỏ sót gần các mốc này.
-   Bằng chứng thu thập được cho thấy nguyên nhân có thể nằm ở cách Azota xử
-   lý các công thức **liên tiếp không có văn bản ngăn cách** trong cùng một
-   đoạn (ví dụ `mathml_35`/`mathml_36` đứng cạnh nhau) — golden đặt mỗi công
-   thức đó trên **một dòng riêng**, còn renderer hiện tại nối chúng trên
-   cùng một dòng (vì cả hai đều là con trực tiếp của cùng `w:p`, không có
-   `w:br` phân tách). Điều này gợi ý Azota có thể tách dòng theo từng
-   `m:oMath`/`m:oMathPara` hiển thị dạng khối, một hành vi thuộc về
-   `runs.py` (dựng đoạn văn) chứ không phải bộ đếm `context.py` — nằm ngoài
-   phạm vi 3 knob. Không tìm được bằng chứng đủ chắc chắn để khẳng định
-   chính xác vật thể nào bị "đếm nhưng không hiện" tại 44/60, nên **không
-   thêm bất kỳ skip cứng nào** (tránh đoán mò theo đúng yêu cầu).
+2. **Bộ đếm placeholder lệch dần (còn tồn đọng, để lại v2).** Sau Fix 1–3,
+   ảnh layout hiện đúng vị trí cấu trúc (`img_43`/`img_44` không còn bọc
+   `[* | *]`) nhưng SỐ vẫn lệch so với golden (`img_45`/`img_46`) — nghĩa là
+   đâu đó trước điểm này bộ đếm toàn cục đã đi lệch 1-2 đơn vị so với Azota.
+   Điều tra lại giả thuyết "công thức khối liên tiếp không phân tách"
+   (Category 2 gốc) bằng cách dump trực tiếp cây `w:p`:
+   - Không có đoạn nào chứa ≥2 `m:oMathPara` là con trực tiếp.
+   - Không có đoạn nào chứa 2 `m:oMath` liên tiếp (không có `w:r` xen giữa)
+     là con trực tiếp của cùng `w:p`.
+   - Không có mẫu `oMath — whitespace-run — oMath` liên tiếp.
+   - Mọi đoạn có ≥2 `m:oMath` trực tiếp đều có text ngăn cách rõ ràng (marker
+     phương án `"A."`, `"B."`...), không phải công thức "trần" liên tiếp.
 
-3. **Bảng chỉ dùng để dàn ảnh (layout table) bị Azota "làm phẳng".** Đoạn
-   `img_45`/`img_46` nằm trong một `w:tbl` 1 dòng 2 cột, nhưng golden xuất
-   ra `"[img:$img_45$]      [img:$img_46$]"` — KHÔNG bọc `[* | *]` như một
-   bảng dữ liệu thật. `tables.py` hiện áp dụng `[* | *]` cho mọi `w:tbl` vô
-   điều kiện. Sửa đúng cần thêm logic phân biệt "bảng layout" (toàn ảnh,
-   không viền/border none) — nằm trong `tables.py`, không phải 1 trong 3
-   knob được phép.
+   Không tìm được bằng chứng đủ chắc chắn → **không implement** rule tách
+   dòng cho Category 2 (đúng theo guard "REVERT/không thêm nếu không chắc
+   chắn"). Nguyên nhân lệch đếm thực sự vẫn chưa xác định — để lại v2, ưu
+   tiên so sánh nhiều đề khác để tách quy luật chung thay vì suy diễn từ 1
+   file mẫu.
 
-4. **Segment khoảng trắng/tab bọc bold render thành tag rác
-   (`"[!b:$ $]"`, `"[!b:$\t$]"`).** Khi một run chỉ chứa khoảng trắng/tab
-   nhưng có định dạng bold, `wrap()` trong `runs.py` vẫn bọc nó thành
-   `[!b:$...$]` dù nội dung chỉ là whitespace — Azota rõ ràng bỏ qua định
-   dạng cho các đoạn thuần khoảng trắng. Phát hiện ở ~5 dòng (vd dòng chứa
-   `mathml_18`, đoạn "Do... khả năng đâm xuyên..."). Sửa đúng cần thêm điều
-   kiện trong `wrap()`/`emit()` của `runs.py` (không phải `answer.py`) —
-   nằm ngoài 3 knob.
+3. ~~Layout table bị làm phẳng~~ — **ĐÃ SỬA** (Fix 3, xem trên).
 
-5. **HTML-entity hoá dấu ngoặc kép (`&quot;`) trong golden.** Ở câu 10, golden
-   chứa literal chuỗi `&quot;` thay vì ký tự `"` thật — nhiều khả năng là
-   một hiện tượng phụ của cách Azota xuất panel dạng HTML rồi copy ra text,
-   không phải quy tắc làm sạch theo spec (`§ Global Constraints` không nhắc
-   HTML-escape). Không sửa vì spec không yêu cầu mô phỏng hiện tượng export
-   này của Azota.
+4. ~~Whitespace-bold render rác~~ — **ĐÃ SỬA** (Fix 1, xem trên).
 
-6. **Tab/khoảng cách thiếu ngay trong nguồn docx** (vd giữa `"Tia X."` và
-   `"B."` ở câu 11 — không có `<w:tab/>` hay khoảng trắng nào giữa 2 run
-   trong XML gốc). Đây là sự không nhất quán của chính tác giả đề, không
-   phải lỗi renderer — giữ nguyên trung thực với nguồn theo đúng nguyên tắc
-   "làm sạch = whitelist", không tự thêm nội dung không có trong docx.
+5. **HTML-entity hoá dấu ngoặc kép (`&quot;`) trong golden — vẫn ngoài phạm
+   vi.** Ở câu 10, golden chứa literal chuỗi `&quot;` thay vì ký tự `"` thật
+   — nhiều khả năng là hiện tượng phụ của cách Azota xuất panel dạng HTML
+   rồi copy ra text, không phải quy tắc làm sạch theo spec (`§ Global
+   Constraints` không nhắc HTML-escape). Không sửa theo đúng chỉ định của
+   Task 7b (out of scope, để v2).
+
+6. **Tab/khoảng cách thiếu ngay trong nguồn docx — vẫn ngoài phạm vi** (vd
+   giữa `"Tia X."` và `"B."` ở câu 11 — không có `<w:tab/>` hay khoảng trắng
+   nào giữa 2 run trong XML gốc). Sự không nhất quán của chính tác giả đề,
+   không phải lỗi renderer — giữ nguyên trung thực với nguồn theo đúng
+   nguyên tắc "làm sạch = whitelist". Không sửa theo đúng chỉ định của Task
+   7b (out of scope, để v2).
 
 ## Đề xuất cho v2
 
-- Mở rộng whitelist bold-stripping sang label câu hỏi (`"Câu N[.:]"`) và ý
-  đúng/sai (`"a)"`.."d)"`) — cần một hàm mới song song với
-  `answer.is_option_marker`, không lẫn với marker A–D (khác ngữ cảnh:
-  marker câu luôn đứng đầu đoạn).
-- Thêm điều kiện "whitespace-only segment → không bọc format" vào
-  `runs.wrap`/`emit`.
-- `tables.py`: phát hiện bảng "toàn ảnh, không viền" → render phẳng thay vì
-  `[* | *]`.
-- Điều tra tiếp cơ chế "đếm nhưng không hiện" ở các mốc 44/60 bằng cách so
-  sánh với các đề khác (để tách quy luật chung, tránh overfit 1 file mẫu) —
-  ưu tiên giả thuyết "công thức liên tiếp không phân tách" ở trên.
-- Xử lý `&quot;`/HTML-entity nếu xác nhận đây là hành vi ổn định của Azota
-  (cần thêm mẫu để kiểm chứng, không suy diễn từ 1 câu hỏi).
+- Điều tra tiếp cơ chế "bộ đếm placeholder lệch dần" (nhóm 2) bằng cách so
+  sánh với các đề khác (để tách quy luật chung, tránh overfit 1 file mẫu).
+  Task 7b đã loại trừ giả thuyết "công thức khối liên tiếp không phân
+  tách" (không tìm thấy mẫu OOXML tương ứng trong file này) — cần thu thập
+  thêm mẫu đề để tìm giả thuyết khác.
+- Xử lý `&quot;`/HTML-entity (nhóm 5) nếu xác nhận đây là hành vi ổn định
+  của Azota (cần thêm mẫu để kiểm chứng, không suy diễn từ 1 câu hỏi).
+- Nhóm 6 (khoảng trắng thiếu trong nguồn docx) — giữ nguyên triết lý "làm
+  sạch = whitelist, không tự thêm nội dung", không có kế hoạch sửa.
+- Cân nhắc tổng quát hoá `answer.is_paragraph_start_label` nếu phát hiện đề
+  khác dùng biến thể khác của label câu/ý (vd `"Câu 1)"`, `"1."` không có
+  chữ "Câu", ý con dạng `"A)"` viết hoa).
 
 ## Cách tái tạo
 

@@ -25,6 +25,11 @@ def run_format(rpr):
     return (bold, italic, vert, underline)
 
 def wrap(text, fmt):
+    # Azota bỏ qua định dạng (bold/italic/vert) cho các segment chỉ chứa
+    # khoảng trắng/tab — bọc tag ở đây chỉ tạo ra rác kiểu "[!b:$ $]" không
+    # có trong golden. Text rỗng hoặc toàn whitespace luôn xuất raw.
+    if not text or text.strip() == "":
+        return text
     bold, italic, vert, _u = fmt
     if vert == "superscript":
         return f"[!sup:${text}$]"
@@ -74,11 +79,15 @@ def _coalesce(segments):
 
 def emit(segments):
     out = []
-    for kind, fmt, content in _coalesce(segments):
+    coalesced = _coalesce(segments)
+    for idx, (kind, fmt, content) in enumerate(coalesced):
         if kind == "raw":
             out.append(content)
         elif content and answer.is_option_marker(content):
             out.append(answer.render_marker(content, fmt))
+        elif idx == 0 and content and answer.is_paragraph_start_label(content):
+            # Câu N:/Câu N./a).."d)" ở đầu đoạn -> Azota xuất plain dù bold.
+            out.append(content)
         else:
             out.append(wrap(content, fmt) if content else "")
     return "".join(out)

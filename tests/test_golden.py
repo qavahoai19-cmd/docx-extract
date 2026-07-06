@@ -23,5 +23,11 @@ def test_report_line_match_ratio():
     matched = sum(1 for ln in gold if ln in got)
     ratio = matched / len(gold)
     print(f"\nGolden line match: {matched}/{len(gold)} = {ratio:.1%}")
-    # nuance đã biết (đếm placeholder 44/60, tab) khiến chưa 100%
-    assert ratio >= 0.70
+    # Task 7b: sau khi sửa whitespace-bold (runs.wrap), strip bold label
+    # Câu N/a)-d) (answer.is_paragraph_start_label), và layout-table
+    # flatten (tables._is_layout_table), tỉ lệ đạt 184/237 = 77.6%.
+    # Ngưỡng khoá lại = floor(0.776, 0.05) = 0.75 để không brittle với
+    # thay đổi nhỏ trong tương lai, vẫn chứng minh mức khớp đã đạt.
+    # Nuance còn lại (đếm placeholder lệch dần, &quot;, whitespace nguồn)
+    # xem docs/superpowers/plans/2026-07-06-golden-diff-report.md.
+    assert ratio >= 0.75
