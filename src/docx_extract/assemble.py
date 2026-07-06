@@ -6,7 +6,6 @@ from .loader import load
 from .context import Context
 from .runs import render_paragraph
 from .tables import render_table
-from . import structure
 
 
 def _paragraph_text(p) -> str:
@@ -57,8 +56,7 @@ def clean_docx(path: str):
     return markup, ctx
 
 
-def write_outputs(markup: str, ctx: Context, out_dir: str,
-                  source_name: str = "sample.docx") -> None:
+def write_outputs(markup: str, ctx: Context, out_dir: str) -> None:
     os.makedirs(out_dir, exist_ok=True)
     side = os.path.join(out_dir, "sidecar")
     os.makedirs(side, exist_ok=True)
@@ -67,12 +65,6 @@ def write_outputs(markup: str, ctx: Context, out_dir: str,
     for fn, data in ctx.written.items():
         with open(os.path.join(side, fn), "wb") as f:
             f.write(data)
-    # Build cây trước khi ghi manifest để cảnh báo từ tầng cấu trúc (loại câu
-    # unknown, thiếu đáp án) được gộp vào ctx.warnings và lọt vào manifest.
-    tree = structure.build(markup, ctx.latex, ctx.warnings)
-    tree["source"] = source_name
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as f:
         json.dump({"assets": ctx.manifest, "warnings": ctx.warnings}, f,
                   ensure_ascii=False, indent=2)
-    with open(os.path.join(out_dir, "structured.json"), "w", encoding="utf-8") as f:
-        json.dump(tree, f, ensure_ascii=False, indent=2)
