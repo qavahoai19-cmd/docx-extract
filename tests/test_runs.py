@@ -37,3 +37,11 @@ def test_merge_adjacent_same_format():
 def test_no_merge_different_format():
     inner = _run("a", b=True) + _run("b")
     assert render_paragraph(_p(inner), None) == "[!b:$a$]b"
+
+def test_option_letters_are_stripped_and_correct_starred():
+    inner = (_run("A.", b=True) + _run(" nóng chảy.")
+             + _run("D.", b=True, u=True) + _run(" ngưng tụ."))
+    got = render_paragraph(_p(inner), None)
+    assert "A. nóng chảy." in got
+    assert "*D. ngưng tụ." in got
+    assert "[!b:$A.$]" not in got

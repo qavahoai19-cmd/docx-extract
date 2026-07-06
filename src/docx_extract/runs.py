@@ -1,5 +1,6 @@
 import re
 from . import ns
+from . import answer
 
 TAB_SPACES = "\t"   # tinh chỉnh ở Task 8 theo golden
 
@@ -66,6 +67,8 @@ def emit(segments):
     for kind, fmt, content in _coalesce(segments):
         if kind == "raw":
             out.append(content)
+        elif content and answer.is_option_marker(content):
+            out.append(answer.render_marker(content, fmt))
         else:
             out.append(wrap(content, fmt) if content else "")
     return "".join(out)
