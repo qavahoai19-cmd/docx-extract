@@ -110,6 +110,54 @@ def _parse_mcq(lines, latex_map):
     return questions
 
 
+def _parse_true_false(lines, latex_map):
+    groups = []
+    g = None
+    in_gt = False
+    gt_lines = []
+    key_iter = "abcd"
+
+    def flush_gt():
+        nonlocal in_gt, gt_lines
+        if g is not None and gt_lines:
+            g["explanation"] = "\n".join(gt_lines).strip()
+        in_gt = False
+        gt_lines = []
+
+    for raw in lines:
+        mg = RE_GROUP.match(raw)
+        if mg:
+            flush_gt()
+            g = {"kind": "group", "label": "Nhóm " + mg.group(1) + ".",
+                 "context": subst_latex(mg.group(2).strip(), latex_map),
+                 "assets": [], "items": [], "explanation": None}
+            groups.append(g)
+            continue
+        if g is None:
+            continue
+        if RE_GT_OPEN.match(raw):
+            in_gt = True
+            continue
+        if RE_GT_CLOSE.match(raw):
+            flush_gt()
+            continue
+        if in_gt:
+            gt_lines.append(_clean_bold(raw))
+            continue
+        mt = RE_TF.match(raw)
+        if mt:
+            key = key_iter[len(g["items"])] if len(g["items"]) < 4 else "?"
+            g["items"].append({"key": key, "answer": mt.group(1),
+                               "stem": subst_latex(mt.group(2).strip(), latex_map)})
+            continue
+        # dòng nối tiếp context (trước item đầu tiên)
+        if not g["items"]:
+            g["context"] = (g["context"] + " " + subst_latex(raw.strip(), latex_map)).strip()
+    for g in groups:
+        g["assets"] = _collect_assets(g["context"])
+    return groups
+
+
 def build(markup: str, latex_map: dict) -> dict:
     lines = markup.split("\n")
     parts = []
@@ -134,4 +182,6 @@ def build(markup: str, latex_map: dict) -> dict:
         p["type"] = _detect_type(p["_lines"])
         if p["type"] == MARK_MCQ:
             p["content"] = _parse_mcq(p["_lines"], latex_map)
+        elif p["type"] == MARK_TF:
+            p["content"] = _parse_true_false(p["_lines"], latex_map)
     return {"source": None, "parts": parts}

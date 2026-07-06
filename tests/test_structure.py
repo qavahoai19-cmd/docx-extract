@@ -55,3 +55,53 @@ def test_mcq_question_options_answer_explanation():
     assert q[0]["answer"] == "D"
     assert "Giải thích" in q[0]["explanation"]
     assert q[1]["answer"] == "A"
+
+
+def test_true_false_group_items():
+    markup = "\n".join([
+        "[!b:$PHẦN II. Đúng sai.$]",
+        "[!b:$Nhóm I.$] Đề chung của nhóm. [img:$img_34$]",
+        "[S] Ý a sai.",
+        "[S] Ý b sai.",
+        "[D] Ý c đúng.",
+        "[D] Ý d đúng.",
+        "[!b:$[GT]$]",
+        "Giải thích nhóm.",
+        "[!b:$[/]$]",
+    ])
+    tree = build(markup, {})
+    grp = tree["parts"][0]["content"]
+    assert len(grp) == 1
+    g = grp[0]
+    assert g["kind"] == "group"
+    assert g["label"] == "Nhóm I."
+    assert "Đề chung" in g["context"]
+    assert g["assets"] == ["img_34"]
+    assert [it["key"] for it in g["items"]] == ["a", "b", "c", "d"]
+    assert [it["answer"] for it in g["items"]] == ["S", "S", "D", "D"]
+    assert "Giải thích nhóm" in g["explanation"]
+
+
+def test_true_false_group_items():
+    markup = "\n".join([
+        "[!b:$PHẦN II. Đúng sai.$]",
+        "[!b:$Nhóm I.$] Đề chung của nhóm. [img:$img_34$]",
+        "[S] Ý a sai.",
+        "[S] Ý b sai.",
+        "[D] Ý c đúng.",
+        "[D] Ý d đúng.",
+        "[!b:$[GT]$]",
+        "Giải thích nhóm.",
+        "[!b:$[/]$]",
+    ])
+    tree = build(markup, {})
+    grp = tree["parts"][0]["content"]
+    assert len(grp) == 1
+    g = grp[0]
+    assert g["kind"] == "group"
+    assert g["label"] == "Nhóm I."
+    assert "Đề chung" in g["context"]
+    assert g["assets"] == ["img_34"]
+    assert [it["key"] for it in g["items"]] == ["a", "b", "c", "d"]
+    assert [it["answer"] for it in g["items"]] == ["S", "S", "D", "D"]
+    assert "Giải thích nhóm" in g["explanation"]
