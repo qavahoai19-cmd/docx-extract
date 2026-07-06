@@ -80,3 +80,33 @@ def test_true_false_group_items():
     assert [it["key"] for it in g["items"]] == ["a", "b", "c", "d"]
     assert [it["answer"] for it in g["items"]] == ["S", "S", "D", "D"]
     assert "Giải thích nhóm" in g["explanation"]
+
+
+def test_short_answer_standalone_and_group():
+    markup = "\n".join([
+        "[!b:$PHẦN III. Trả lời ngắn$].",
+        "Câu 1. Tính độ tăng nhiệt độ.",
+        "Đáp án là {a}",
+        "A.69,6",
+        "[!b:$Nhóm II.$] Bối cảnh máy đo huyết áp. [img:$img_82$]",
+        "Câu 2. Số phân tử khí.",
+        "Đáp án là {a}",
+        "A.3,1",
+        "Câu 3. Thể tích túi khí.",
+        "Đáp án là {a}",
+        "A.70",
+        "[!b:$[GT]$]",
+        "Giải chung câu 2,3.",
+        "[!b:$[/]$]",
+    ])
+    tree = build(markup, {})
+    content = tree["parts"][0]["content"]
+    assert content[0]["kind"] == "question"
+    assert content[0]["no"] == 1
+    assert content[0]["answer"] == "69,6"
+    assert content[1]["kind"] == "group"
+    assert content[1]["label"] == "Nhóm II."
+    assert content[1]["assets"] == ["img_82"]
+    assert [q["no"] for q in content[1]["questions"]] == [2, 3]
+    assert content[1]["questions"][0]["answer"] == "3,1"
+    assert "Giải chung" in content[1]["explanation"]

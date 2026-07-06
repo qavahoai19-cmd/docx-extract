@@ -159,6 +159,79 @@ def _parse_true_false(lines, latex_map):
     return groups
 
 
+def _new_short_q(no, stem, latex_map):
+    return {"kind": "question", "no": no,
+            "stem": subst_latex(stem, latex_map),
+            "answer": None, "explanation": None, "assets": []}
+
+
+def _parse_short_answer(lines, latex_map):
+    content = []
+    cur_q = None
+    cur_group = None
+    in_gt = False
+    gt_lines = []
+    expect_val = False  # dòng trước là "Đáp án là {a}"
+
+    def target_list():
+        return cur_group["questions"] if cur_group is not None else content
+
+    def flush_gt():
+        nonlocal in_gt, gt_lines
+        if gt_lines:
+            holder = cur_group if cur_group is not None else cur_q
+            if holder is not None:
+                holder["explanation"] = "\n".join(gt_lines).strip()
+        in_gt = False
+        gt_lines = []
+
+    for raw in lines:
+        mg = RE_GROUP.match(raw)
+        if mg:
+            flush_gt()
+            cur_q = None
+            cur_group = {"kind": "group", "label": "Nhóm " + mg.group(1) + ".",
+                         "context": subst_latex(mg.group(2).strip(), latex_map),
+                         "assets": [], "questions": [], "explanation": None}
+            content.append(cur_group)
+            continue
+        if RE_GT_OPEN.match(raw):
+            in_gt = True
+            continue
+        if RE_GT_CLOSE.match(raw):
+            flush_gt()
+            continue
+        if in_gt:
+            gt_lines.append(_clean_bold(raw))
+            continue
+        mq = RE_QUESTION.match(raw)
+        if mq:
+            cur_q = _new_short_q(int(mq.group(1)), mq.group(2).strip(), latex_map)
+            target_list().append(cur_q)
+            expect_val = False
+            continue
+        if RE_SHORT.match(raw):
+            expect_val = True
+            continue
+        if expect_val and cur_q is not None:
+            mv = RE_SHORT_VAL.match(raw.strip())
+            if mv:
+                cur_q["answer"] = mv.group(1).strip()
+            expect_val = False
+            continue
+        # nối tiếp stem của câu hiện tại (hoặc context nhóm nếu chưa có câu)
+        if cur_q is not None:
+            cur_q["stem"] = (cur_q["stem"] + " " + subst_latex(raw.strip(), latex_map)).strip()
+        elif cur_group is not None:
+            cur_group["context"] = (cur_group["context"] + " " + subst_latex(raw.strip(), latex_map)).strip()
+    for node in content:
+        if node["kind"] == "group":
+            node["assets"] = _collect_assets(node["context"])
+        else:
+            node["assets"] = _collect_assets(node["stem"])
+    return content
+
+
 def build(markup: str, latex_map: dict) -> dict:
     lines = markup.split("\n")
     parts = []
@@ -185,4 +258,6 @@ def build(markup: str, latex_map: dict) -> dict:
             p["content"] = _parse_mcq(p["_lines"], latex_map)
         elif p["type"] == MARK_TF:
             p["content"] = _parse_true_false(p["_lines"], latex_map)
+        elif p["type"] == MARK_SHORT:
+            p["content"] = _parse_short_answer(p["_lines"], latex_map)
     return {"source": None, "parts": parts}
