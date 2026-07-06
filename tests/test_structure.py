@@ -31,3 +31,27 @@ def test_build_splits_three_parts_with_types():
     assert parts[1]["type"] == "true_false"
     assert parts[2]["type"] == "short_answer"
     assert "Thí sinh trả lời từ câu 1 đến câu 18" in parts[0]["instruction"]
+
+
+def test_mcq_question_options_answer_explanation():
+    markup = "\n".join([
+        "[!b:$PHẦN I. Trắc nghiệm.$]",
+        "Câu 1: Nội dung hỏi",
+        "A. nóng chảy.        B. bay hơi.        C. ngưng kết.        *D. ngưng tụ.",
+        "[!b:$[GT]$]",
+        "Giải thích ở đây.",
+        "[!b:$Chọn D.$]",
+        "[!b:$[/]$]",
+        "Câu 2: Câu khác",
+        "*A. đúng.    B. sai.",
+    ])
+    tree = build(markup, {})
+    q = tree["parts"][0]["content"]
+    assert len(q) == 2
+    assert q[0]["no"] == 1
+    assert q[0]["stem"] == "Nội dung hỏi"
+    assert [o["key"] for o in q[0]["options"]] == ["A", "B", "C", "D"]
+    assert q[0]["options"][3]["text"] == "ngưng tụ."
+    assert q[0]["answer"] == "D"
+    assert "Giải thích" in q[0]["explanation"]
+    assert q[1]["answer"] == "A"
