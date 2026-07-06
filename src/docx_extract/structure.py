@@ -4,16 +4,26 @@ RE_PART = re.compile(r"^\[!b:\$PHẦN\s+([IVX]+)\.?\s*(.*?)\$\](.*)$")
 RE_GROUP = re.compile(r"^\[!b:\$Nhóm\s+([IVX]+)\.?\s*\$\]\s*(.*)$")
 RE_QUESTION = re.compile(r"^Câu\s+(\d+)\s*[.:]\s*(.*)$")
 RE_OPTION = re.compile(r"(\*?)([A-D])[.)]\s*")
+# Dòng phương án LUÔN bắt đầu bằng marker; anchor để prose "Vật A. và B."
+# giữa stem không bị nhận nhầm thành dòng option.
+RE_OPTION_LINE = re.compile(r"^\s*\*?[A-D][.)]")
 RE_TF = re.compile(r"^\[([DS])\]\s*(.*)$")
 RE_GT_OPEN = re.compile(r"^(?:\[!b:\$)?\[GT\]")
 RE_GT_CLOSE = re.compile(r"^(?:\[!b:\$)?\[/\]")
 RE_SHORT = re.compile(r"^Đáp án là \{a\}\s*$")
 RE_INSTR = re.compile(r"\[!i:\$(.*?)\$\]")
-RE_SHORT_VAL = re.compile(r"^[A-D]?\.?\s*(.+)$")
+# Giá trị đáp án ngắn: chỉ bỏ ký tự phương án đầu dòng khi có dấu . hoặc )
+# theo sau (vd "A.69,6" -> "69,6"), KHÔNG cắt "D2" thành "2".
+RE_SHORT_VAL = re.compile(r"^(?:[A-D][.)])?\s*(.+)$")
+# Lớp định dạng nhấn mạnh (đậm/nghiêng) — strip về nội dung trần cho text
+# đã bóc cấu trúc. KHÔNG đụng sup/sub (mang nghĩa mũ/chỉ số) hay math token.
+RE_EMPH = re.compile(r"\[!(?:b|i|b!i)?:?\$?|\$\]|\[!b:\$|\[!i:\$|\[!b!i:\$")
+RE_EMPH_WRAP = re.compile(r"\[!(?:b|i|b!i):\$(.*?)\$\]")
 
 MARK_MCQ = "mcq"
 MARK_TF = "true_false"
 MARK_SHORT = "short_answer"
+MARK_UNKNOWN = "unknown"
 
 
 def subst_latex(text: str, latex_map: dict) -> str:
@@ -26,18 +36,28 @@ def subst_latex(text: str, latex_map: dict) -> str:
 
 
 def _clean_bold(s: str) -> str:
-    # bỏ lớp [!b:$...$] ngoài cùng để lấy text tiêu đề trần
-    m = re.match(r"^\[!b:\$(.*)\$\]$", s.strip())
-    return m.group(1) if m else s
+    # Bỏ MỌI lớp nhấn mạnh [!b:$...$]/[!i:$...$]/[!b!i:$...$] (kể cả nằm giữa
+    # dòng — partial bold), giữ lại nội dung bên trong. Không đụng sup/sub/math.
+    prev = None
+    out = s
+    while prev != out:
+        prev = out
+        out = RE_EMPH_WRAP.sub(r"\1", out)
+    return out
 
 
 def _detect_type(lines) -> str:
+    has_option = False
     for ln in lines:
         if RE_TF.match(ln):
             return MARK_TF
         if RE_SHORT.match(ln):
             return MARK_SHORT
-    return MARK_MCQ  # mặc định: trắc nghiệm A-D
+        if RE_OPTION_LINE.match(ln):
+            has_option = True
+    # Trắc nghiệm A-D nhận diện bằng sự hiện diện của dòng phương án.
+    # Không có tín hiệu nào -> unknown (spec §7), không mặc định mcq.
+    return MARK_MCQ if has_option else MARK_UNKNOWN
 
 
 def _collect_assets(text: str) -> list:
@@ -96,7 +116,7 @@ def _parse_mcq(lines, latex_map):
             continue
         if q is None:
             continue
-        if RE_OPTION.search(raw):
+        if RE_OPTION_LINE.match(raw):
             for o in _split_options(raw, latex_map):
                 if o.pop("_star"):
                     q["answer"] = o["key"]
@@ -232,20 +252,48 @@ def _parse_short_answer(lines, latex_map):
     return content
 
 
-def build(markup: str, latex_map: dict) -> dict:
+def _parse_unknown(lines, latex_map):
+    body = "\n".join(subst_latex(_clean_bold(l), latex_map)
+                     for l in lines if l.strip())
+    return [{"kind": "question", "no": None, "stem": body,
+             "options": [], "answer": None, "explanation": None,
+             "assets": _collect_assets("\n".join(lines))}]
+
+
+def _scan_answers(part, warnings):
+    if part["type"] == MARK_UNKNOWN:
+        return
+    for node in part["content"]:
+        if node["kind"] == "question" and node.get("answer") is None:
+            warnings.append(
+                f"PHẦN {part['no']} câu {node.get('no')}: không tách được đáp án")
+        elif node["kind"] == "group":
+            for it in node.get("items", []):
+                if it.get("answer") is None:
+                    warnings.append(
+                        f"PHẦN {part['no']} {node['label']} ý {it.get('key')}: thiếu đáp án")
+            for q in node.get("questions", []):
+                if q.get("answer") is None:
+                    warnings.append(
+                        f"PHẦN {part['no']} {node['label']} câu {q.get('no')}: thiếu đáp án")
+
+
+def build(markup: str, latex_map: dict, warnings: list = None) -> dict:
+    if warnings is None:
+        warnings = []
     lines = markup.split("\n")
     parts = []
     cur = None
     for raw in lines:
         mp = RE_PART.match(raw)
         if mp:
-            title = "PHẦN " + mp.group(1) + ". " + mp.group(2).strip()
+            title = ("PHẦN " + mp.group(1) + ". " + mp.group(2).strip()).strip()
             instr = ""
             mi = RE_INSTR.search(raw)
             if mi:
                 instr = mi.group(1).strip()
             cur = {"no": mp.group(1), "type": None,
-                   "title": title.strip().rstrip("."), "instruction": instr,
+                   "title": title.removesuffix("."), "instruction": instr,
                    "content": [], "_lines": []}
             parts.append(cur)
             continue
@@ -260,6 +308,12 @@ def build(markup: str, latex_map: dict) -> dict:
             p["content"] = _parse_true_false(p["_lines"], latex_map)
         elif p["type"] == MARK_SHORT:
             p["content"] = _parse_short_answer(p["_lines"], latex_map)
+        else:  # unknown
+            warnings.append(
+                f"PHẦN {p['no']}: không nhận diện được loại câu, giữ nội dung thô")
+            p["content"] = _parse_unknown(p["_lines"], latex_map)
+    for p in parts:
+        _scan_answers(p, warnings)
     for p in parts:
         del p["_lines"]  # trường làm việc nội bộ, không xuất ra JSON
     return {"source": None, "parts": parts}

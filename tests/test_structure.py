@@ -110,3 +110,65 @@ def test_short_answer_standalone_and_group():
     assert [q["no"] for q in content[1]["questions"]] == [2, 3]
     assert content[1]["questions"][0]["answer"] == "3,1"
     assert "Giải chung" in content[1]["explanation"]
+
+
+def test_unknown_part_type_and_warning():
+    markup = "\n".join([
+        "[!b:$PHẦN IV. Không rõ loại.$]",
+        "Chỉ có văn bản, không có phương án, không [S]/[D], không Đáp án.",
+    ])
+    warns = []
+    tree = build(markup, {}, warns)
+    p = tree["parts"][0]
+    assert p["type"] == "unknown"
+    assert p["content"] and p["content"][0]["stem"]
+    assert any("không nhận diện" in w for w in warns)
+
+
+def test_option_regex_not_triggered_by_prose_in_stem():
+    markup = "\n".join([
+        "[!b:$PHẦN I. Trắc nghiệm.$]",
+        "Câu 1: So sánh vật A. và vật B. trong thí nghiệm",
+        "*A. đúng.        B. sai.",
+    ])
+    q = build(markup, {})["parts"][0]["content"][0]
+    # dòng prose "Vật A. và vật B." phải nằm trong stem, KHÔNG thành options
+    assert "vật B" in q["stem"]
+    assert [o["key"] for o in q["options"]] == ["A", "B"]
+    assert q["answer"] == "A"
+
+
+def test_short_val_keeps_letter_prefixed_value():
+    markup = "\n".join([
+        "[!b:$PHẦN III. Ngắn$].",
+        "Câu 1. Ký hiệu hạt.",
+        "Đáp án là {a}",
+        "D2",
+    ])
+    q = build(markup, {})["parts"][0]["content"][0]
+    assert q["answer"] == "D2"
+
+
+def test_clean_bold_strips_partial_bold_in_explanation():
+    markup = "\n".join([
+        "[!b:$PHẦN I. Trắc nghiệm.$]",
+        "Câu 1: Hỏi",
+        "*A. đúng.    B. sai.",
+        "[!b:$[GT]$]",
+        "Do khả năng [!b:$đâm xuyên$] của tia X khác nhau.",
+        "[!b:$[/]$]",
+    ])
+    q = build(markup, {})["parts"][0]["content"][0]
+    assert "[!b:" not in q["explanation"]
+    assert "đâm xuyên" in q["explanation"]
+
+
+def test_missing_answer_emits_warning():
+    markup = "\n".join([
+        "[!b:$PHẦN I. Trắc nghiệm.$]",
+        "Câu 1: Hỏi",
+        "A. một.    B. hai.",   # không có * -> thiếu đáp án
+    ])
+    warns = []
+    build(markup, {}, warns)
+    assert any("không tách được đáp án" in w for w in warns)
