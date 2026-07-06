@@ -2,7 +2,17 @@ import re
 from . import ns
 from . import answer
 
-TAB_SPACES = "\t"   # tinh chỉnh ở Task 8 theo golden
+
+# Azota render w:tab bằng chuỗi dấu cách để căn cột giữa các phương án.
+# Golden fixture cho thấy độ rộng thực tế biến thiên theo tab-stop thật
+# (8, 12, 13, 4, 20 dấu cách tuỳ dòng — vì Azota mô phỏng tab-stop thực của
+# Word, không phải một hằng số cố định). Vì test khớp dòng đã chuẩn hoá mọi
+# chuỗi khoảng trắng liên tiếp về 1 dấu cách (xem tests/test_golden.py::_norm),
+# giá trị chính xác của hằng số này không ảnh hưởng tới golden-match ratio;
+# ta chọn 4 dấu cách làm giá trị gần đúng hợp lý cho output "thô" (markup.txt)
+# khi không chuẩn hoá khoảng trắng, thay vì ký tự tab thật (Word tab-stop
+# đầy đủ đòi hỏi mô phỏng font-metric — ngoài phạm vi task này).
+TAB_SPACES = "    "
 
 def run_format(rpr):
     if rpr is None:

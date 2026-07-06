@@ -7,15 +7,34 @@ from .runs import render_paragraph
 from .tables import render_table
 
 
+def _paragraph_text(p) -> str:
+    return "".join(t.text or "" for t in p.iter(ns.q("w", "t")))
+
+
+# Đề thi luôn mở đầu bằng một section-heading dạng "PHẦN I. ...".
+# Trước heading này, file mẫu có các đoạn "metadata" nội bộ (vd "---NTP",
+# "Cho biết: ...") không xuất hiện trong panel Azota — NHƯNG các công thức/
+# ảnh nằm trong các đoạn đó vẫn được Azota tính vào bộ đếm placeholder toàn
+# cục (bằng chứng: golden bắt đầu ở mathtype_3, tức đã "tiêu" 2 số cho đúng
+# 2 công thức nằm trong 2 đoạn mở đầu này). Ta tái tạo hành vi đó: vẫn gọi
+# render_paragraph/render_table để bộ đếm tăng đúng, nhưng bỏ dòng ra khỏi
+# markup cho tới khi gặp heading "PHẦN".
 def clean_docx(path: str):
     doc = load(path)
     ctx = Context(rels=doc.rels, assets=doc.assets)
     lines = []
+    started = False
     for child in doc.body:
         if child.tag == ns.q("w", "p"):
-            lines.append(render_paragraph(child, ctx))
+            if not started and _paragraph_text(child).strip().startswith("PHẦN"):
+                started = True
+            rendered = render_paragraph(child, ctx)
+            if started:
+                lines.append(rendered)
         elif child.tag == ns.q("w", "tbl"):
-            lines.append(render_table(child, ctx))
+            rendered = render_table(child, ctx)
+            if started:
+                lines.append(rendered)
         # w:sectPr… bỏ qua
     markup = "\n".join(lines)
     return markup, ctx
