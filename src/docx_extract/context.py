@@ -2,6 +2,7 @@ import posixpath
 from dataclasses import dataclass, field
 from lxml import etree
 from . import ns
+from . import mathlatex
 
 
 @dataclass
@@ -12,6 +13,7 @@ class Context:
     written: dict = field(default_factory=dict)     # filename -> bytes
     manifest: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
+    latex: dict = field(default_factory=dict)     # oid -> LaTeX (chỉ OMML)
 
     def _next(self, prefix: str) -> str:
         self.counter += 1
@@ -24,7 +26,13 @@ class Context:
         oid = self._next("mathml")
         frag = etree.tostring(elem, encoding="utf-8")
         self.written[f"{oid}.xml"] = frag
-        self.manifest.append({"id": oid, "type": "mathml", "source": "inline-omml"})
+        latex = mathlatex.omml_to_latex(elem)
+        if latex is None:
+            self.warnings.append(f"{oid}: OMML->LaTeX thất bại, giữ placeholder")
+        else:
+            self.latex[oid] = latex
+        self.manifest.append(
+            {"id": oid, "type": "mathml", "source": "inline-omml", "latex": latex})
         return f"[!m:${oid}$]"
 
     def _resolve(self, rid):

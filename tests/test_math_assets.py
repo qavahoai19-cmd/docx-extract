@@ -80,3 +80,17 @@ def test_ole_missing_progid_skipped_with_warning():
     assert c.ole(w_obj) is None
     assert c.counter == 0
     assert c.warnings
+
+
+def test_omml_populates_latex_map():
+    from docx_extract.context import Context
+    from docx_extract import ns
+    from lxml import etree
+    c = Context(rels={}, assets={})
+    frac = (f'<m:oMath xmlns:m="{ns.M[1:-1]}"><m:f>'
+            f'<m:num><m:r><m:t>a</m:t></m:r></m:num>'
+            f'<m:den><m:r><m:t>b</m:t></m:r></m:den></m:f></m:oMath>')
+    m = etree.fromstring(frac)
+    assert c.omml(m) == "[!m:$mathml_1$]"
+    assert c.latex["mathml_1"] == r"\frac{a}{b}"
+    assert c.manifest[-1]["latex"] == r"\frac{a}{b}"
