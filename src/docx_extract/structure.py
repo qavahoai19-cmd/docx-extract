@@ -9,6 +9,7 @@ RE_GT_OPEN = re.compile(r"^(?:\[!b:\$)?\[GT\]")
 RE_GT_CLOSE = re.compile(r"^(?:\[!b:\$)?\[/\]")
 RE_SHORT = re.compile(r"^Đáp án là \{a\}\s*$")
 RE_INSTR = re.compile(r"\[!i:\$(.*?)\$\]")
+RE_SHORT_VAL = re.compile(r"^[A-D]?\.?\s*(.+)$")
 
 MARK_MCQ = "mcq"
 MARK_TF = "true_false"
