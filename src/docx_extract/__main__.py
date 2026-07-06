@@ -1,4 +1,5 @@
 import argparse
+import os
 from .assemble import clean_docx, write_outputs
 
 def main():
@@ -7,8 +8,8 @@ def main():
     ap.add_argument("-o", "--out", default="out")
     args = ap.parse_args()
     markup, ctx = clean_docx(args.docx)
-    write_outputs(markup, ctx, args.out)
-    print(f"Ghi {args.out}/markup.txt | assets: {len(ctx.written)} | warnings: {len(ctx.warnings)}")
+    write_outputs(markup, ctx, args.out, source_name=os.path.basename(args.docx))
+    print(f"Ghi {args.out}/markup.txt + structured.json | assets: {len(ctx.written)} | warnings: {len(ctx.warnings)}")
 
 if __name__ == "__main__":
     main()

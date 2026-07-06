@@ -84,7 +84,7 @@ def _parse_mcq(lines, latex_map):
             flush_gt()
             continue
         if in_gt:
-            gt_lines.append(_clean_bold(raw))
+            gt_lines.append(subst_latex(_clean_bold(raw), latex_map))
             continue
         mq = RE_QUESTION.match(raw)
         if mq:
@@ -143,7 +143,7 @@ def _parse_true_false(lines, latex_map):
             flush_gt()
             continue
         if in_gt:
-            gt_lines.append(_clean_bold(raw))
+            gt_lines.append(subst_latex(_clean_bold(raw), latex_map))
             continue
         mt = RE_TF.match(raw)
         if mt:
@@ -202,7 +202,7 @@ def _parse_short_answer(lines, latex_map):
             flush_gt()
             continue
         if in_gt:
-            gt_lines.append(_clean_bold(raw))
+            gt_lines.append(subst_latex(_clean_bold(raw), latex_map))
             continue
         mq = RE_QUESTION.match(raw)
         if mq:
@@ -260,4 +260,6 @@ def build(markup: str, latex_map: dict) -> dict:
             p["content"] = _parse_true_false(p["_lines"], latex_map)
         elif p["type"] == MARK_SHORT:
             p["content"] = _parse_short_answer(p["_lines"], latex_map)
+    for p in parts:
+        del p["_lines"]  # trường làm việc nội bộ, không xuất ra JSON
     return {"source": None, "parts": parts}
