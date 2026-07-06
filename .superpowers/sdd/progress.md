@@ -27,3 +27,4 @@ Branch: feat/docx-clean-module
 - Task 7 (structured.json + golden): pending
 - Task 8 (XSLT, optional): pending
 - v2 review fixes: complete (suite 46/46, real file 0 warnings)
+- v3: removed structured export (suite 30/30); MTEF deferred
