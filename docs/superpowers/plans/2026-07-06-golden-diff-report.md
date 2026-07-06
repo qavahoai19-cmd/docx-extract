@@ -183,6 +183,15 @@ ngoài phạm vi** như kết luận gốc của Task 7. Chi tiết:
    nguyên tắc "làm sạch = whitelist". Không sửa theo đúng chỉ định của Task
    7b (out of scope, để v2).
 
+## Giới hạn v1 được chấp nhận (theo spec §8)
+
+- **Nhận đáp án đúng chỉ dùng tín hiệu gạch chân (tier-1).** `answer.py` v1 chỉ
+  đánh `*` khi chữ cái phương án được gạch chân — đúng với file mẫu. Bốn tầng
+  fallback trong spec §4.3 (đậm khác biệt → màu/highlight → suy từ "Chọn X."
+  trong `[GT]`) cùng cảnh báo khi không có tín hiệu nào được **hoãn sang v2** có
+  chủ đích. Hệ quả: đề đánh dấu đáp án bằng đậm/màu thay vì gạch chân sẽ không
+  được gắn `*` ở v1 (không crash, chỉ thiếu dấu). Phạm vi đã chốt, không phải lỗi.
+
 ## Đề xuất cho v2
 
 - Điều tra tiếp cơ chế "bộ đếm placeholder lệch dần" (nhóm 2) bằng cách so

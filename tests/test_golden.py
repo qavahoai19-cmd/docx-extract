@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 from docx_extract import clean_docx
 
-DOCX = r"C:\Users\admin\Downloads\ĐỀ VẬT LÍ LẦN 3_VER 2 (2).docx"
+DOCX = Path(__file__).parent / "fixtures" / "sample.docx"
 GOLDEN = Path(__file__).parent / "fixtures" / "golden_azota.txt"
 
 def _norm(s):

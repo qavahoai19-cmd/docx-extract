@@ -1,7 +1,8 @@
+from pathlib import Path
 from docx_extract.loader import load
 from docx_extract import ns
 
-DOCX = r"C:\Users\admin\Downloads\ĐỀ VẬT LÍ LẦN 3_VER 2 (2).docx"
+DOCX = Path(__file__).parent / "fixtures" / "sample.docx"
 
 def test_load_returns_body_rels_assets():
     doc = load(DOCX)

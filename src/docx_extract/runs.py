@@ -56,7 +56,9 @@ def _render_run(r, ctx, segments):
         elif tag == ns.q("w", "drawing") and ctx is not None:
             segments.append(("raw", None, ctx.image(child)))
         elif tag == ns.q("w", "object") and ctx is not None:
-            segments.append(("raw", None, ctx.ole(child)))
+            rendered = ctx.ole(child)
+            if rendered is not None:
+                segments.append(("raw", None, rendered))
 
 def _walk(parent, ctx, segments):
     for child in parent:

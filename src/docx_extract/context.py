@@ -47,7 +47,19 @@ class Context:
             self.manifest.append({"id": oid, "type": "img", "source": path})
         return f"[img:${oid}$]"
 
-    def ole(self, w_object) -> str:
+    def ole(self, w_object) -> str | None:
+        # Spec §4.2: chỉ OLE Equation (Equation.DSMT4 / Equation.3) mới được
+        # coi là công thức MathType. w:object cũng có thể chứa các loại OLE
+        # khác (bảng Excel nhúng, tài liệu Word nhúng, biểu đồ...) — những
+        # thứ đó KHÔNG phải công thức và không được gắn placeholder mathtype
+        # (và không được tiêu số của bộ đếm chung).
+        ole_obj = w_object.find(f".//{ns.q('o', 'OLEObject')}")
+        progid = ole_obj.get("ProgID") if ole_obj is not None else None
+        if not progid or "Equation" not in progid:
+            self.warnings.append(
+                f"w:object bỏ qua: ProgID={progid!r} không phải OLE Equation"
+            )
+            return None
         oid = self._next("mathtype")
         # render WMF/EMF nằm ở v:imagedata @r:id
         imagedata = w_object.find(f".//{ns.q('v', 'imagedata')}")

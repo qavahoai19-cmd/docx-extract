@@ -34,6 +34,11 @@ def render_table(tbl, ctx) -> str:
     lines = []
     for tr in tbl.findall(ns.q("w", "tr")):
         cells = [_cell_text(tc, ctx) for tc in tr.findall(ns.q("w", "tc"))]
+        if not any(cells):
+            # Hàng mà mọi cell đều rỗng không mang nội dung gì — bỏ qua để
+            # tránh sinh dòng trắng rác (layout) hoặc "[*  *]" rác (bảng dữ
+            # liệu) giữa markup.
+            continue
         if layout:
             lines.append("      ".join(c for c in cells if c))
         else:

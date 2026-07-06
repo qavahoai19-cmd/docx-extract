@@ -1,5 +1,6 @@
 import json
 import os
+import re
 from . import ns
 from .loader import load
 from .context import Context
@@ -11,31 +12,46 @@ def _paragraph_text(p) -> str:
     return "".join(t.text or "" for t in p.iter(ns.q("w", "t")))
 
 
-# Đề thi luôn mở đầu bằng một section-heading dạng "PHẦN I. ...".
-# Trước heading này, file mẫu có các đoạn "metadata" nội bộ (vd "---NTP",
-# "Cho biết: ...") không xuất hiện trong panel Azota — NHƯNG các công thức/
-# ảnh nằm trong các đoạn đó vẫn được Azota tính vào bộ đếm placeholder toàn
-# cục (bằng chứng: golden bắt đầu ở mathtype_3, tức đã "tiêu" 2 số cho đúng
-# 2 công thức nằm trong 2 đoạn mở đầu này). Ta tái tạo hành vi đó: vẫn gọi
-# render_paragraph/render_table để bộ đếm tăng đúng, nhưng bỏ dòng ra khỏi
-# markup cho tới khi gặp heading "PHẦN".
+# Đề thi thường mở đầu bằng một section-heading dạng "PHẦN I. ...", "Nhóm
+# I..." hoặc trực tiếp "Câu 1: ...". Trước heading này, một số file mẫu có
+# các đoạn "metadata" nội bộ (vd "---NTP", "Cho biết: ...") không xuất hiện
+# trong panel Azota — NHƯNG các công thức/ảnh nằm trong các đoạn đó vẫn được
+# Azota tính vào bộ đếm placeholder toàn cục (bằng chứng: golden bắt đầu ở
+# mathtype_3, tức đã "tiêu" 2 số cho đúng 2 công thức nằm trong 2 đoạn mở
+# đầu này). Ta tái tạo hành vi đó: vẫn gọi render_paragraph/render_table cho
+# MỌI đoạn để bộ đếm tăng đúng, nhưng chỉ bỏ dòng ra khỏi markup cho tới khi
+# gặp anchor nội dung thật đầu tiên (PHẦN/Nhóm/Câu).
+#
+# Đây là một content-based heuristic có chủ đích bị giới hạn phạm vi: nếu
+# KHÔNG file nào trong toàn bộ body khớp anchor (một đề có heading khác hẳn,
+# hoặc không có heading), ta KHÔNG được phép âm thầm trả về markup rỗng —
+# phải xuất toàn bộ nội dung đã render và cảnh báo, để lỗi hiển thị thay vì
+# biến mất (constraint "không bao giờ crash / luôn xuất output có nghĩa").
+_ANCHOR_RE = re.compile(r"^(PHẦN|Nhóm|Câu)\b")
+
+
 def clean_docx(path: str):
     doc = load(path)
     ctx = Context(rels=doc.rels, assets=doc.assets)
-    lines = []
-    started = False
+    all_lines = []
+    anchor_idx = None
     for child in doc.body:
         if child.tag == ns.q("w", "p"):
-            if not started and _paragraph_text(child).strip().startswith("PHẦN"):
-                started = True
+            if anchor_idx is None and _ANCHOR_RE.match(_paragraph_text(child).strip()):
+                anchor_idx = len(all_lines)
             rendered = render_paragraph(child, ctx)
-            if started:
-                lines.append(rendered)
+            all_lines.append(rendered)
         elif child.tag == ns.q("w", "tbl"):
             rendered = render_table(child, ctx)
-            if started:
-                lines.append(rendered)
+            all_lines.append(rendered)
         # w:sectPr… bỏ qua
+    if anchor_idx is None:
+        ctx.warnings.append(
+            "no PHẦN/Nhóm/Câu anchor found — emitting full body"
+        )
+        lines = all_lines
+    else:
+        lines = all_lines[anchor_idx:]
     markup = "\n".join(lines)
     return markup, ctx
 
