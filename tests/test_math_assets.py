@@ -48,15 +48,50 @@ def _w_object(progid, rid="rId5"):
 def test_ole_equation_object_emits_mathtype():
     # ProgID chứa "Equation" (Equation.DSMT4 / Equation.3) -> hành vi cũ,
     # không đổi: placeholder mathtype_N, bộ đếm tăng, asset ghi ra.
+    # ocr_fn giả lập để test không phụ thuộc torch/pythonnet thật.
     c = Context(
         rels={"rId5": "word/embeddings/oleObject1.wmf"},
         assets={"word/embeddings/oleObject1.wmf": b"WMF"},
+        ocr_fn=lambda data, ext: "x^{2}",
     )
     w_obj = _w_object("Equation.DSMT4")
     assert c.ole(w_obj) == "[!m:$mathtype_1$]"
     assert c.counter == 1
     assert c.written["mathtype_1.wmf"] == b"WMF"
     assert not c.warnings
+    assert c.latex["mathtype_1"] == "x^{2}"
+    assert c.manifest[-1]["latex"] == "x^{2}"
+
+
+def test_ole_equation_ocr_failure_warns_but_keeps_placeholder():
+    # ocr_fn trả None (OCR thất bại) -> cảnh báo, KHÔNG crash, placeholder ảnh
+    # vẫn xuất ra, không có entry trong ctx.latex.
+    c = Context(
+        rels={"rId5": "word/embeddings/oleObject1.wmf"},
+        assets={"word/embeddings/oleObject1.wmf": b"WMF"},
+        ocr_fn=lambda data, ext: None,
+    )
+    w_obj = _w_object("Equation.DSMT4")
+    assert c.ole(w_obj) == "[!m:$mathtype_1$]"
+    assert "mathtype_1" not in c.latex
+    assert c.warnings
+    assert c.manifest[-1]["latex"] is None
+
+
+def test_ole_equation_ocr_exception_warns_but_keeps_placeholder():
+    # ocr_fn raise exception -> vẫn bắt lại, cảnh báo, không crash.
+    def boom(data, ext):
+        raise RuntimeError("model crashed")
+
+    c = Context(
+        rels={"rId5": "word/embeddings/oleObject1.wmf"},
+        assets={"word/embeddings/oleObject1.wmf": b"WMF"},
+        ocr_fn=boom,
+    )
+    w_obj = _w_object("Equation.DSMT4")
+    assert c.ole(w_obj) == "[!m:$mathtype_1$]"
+    assert "mathtype_1" not in c.latex
+    assert c.warnings
 
 
 def test_ole_non_equation_object_skipped_with_warning():

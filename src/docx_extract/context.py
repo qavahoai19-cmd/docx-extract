@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from lxml import etree
 from . import ns
 from . import mathlatex
+from . import mathocr
 
 
 @dataclass
@@ -13,7 +14,8 @@ class Context:
     written: dict = field(default_factory=dict)     # filename -> bytes
     manifest: list = field(default_factory=list)
     warnings: list = field(default_factory=list)
-    latex: dict = field(default_factory=dict)     # oid -> LaTeX (chỉ OMML)
+    latex: dict = field(default_factory=dict)     # oid -> LaTeX (OMML + OCR mathtype)
+    ocr_fn: object = None   # Callable[[bytes, str], str | None] | None — tiêm cho test
 
     def _next(self, prefix: str) -> str:
         self.counter += 1
@@ -55,6 +57,20 @@ class Context:
             self.manifest.append({"id": oid, "type": "img", "source": path})
         return f"[img:${oid}$]"
 
+    def _ocr_mathtype(self, oid: str, data: bytes, ext: str) -> None:
+        """OCR ảnh MathType OLE (WMF/EMF) sang LaTeX -> self.latex[oid].
+        Lỗi ở bất kỳ bước nào -> warning, KHÔNG crash, KHÔNG set latex."""
+        fn = self.ocr_fn if self.ocr_fn is not None else mathocr.image_to_latex
+        try:
+            latex = fn(data, ext)
+        except Exception as exc:
+            self.warnings.append(f"{oid}: OCR MathType lỗi: {exc}")
+            return
+        if latex:
+            self.latex[oid] = latex
+        else:
+            self.warnings.append(f"{oid}: OCR MathType không trả LaTeX")
+
     def ole(self, w_object) -> str | None:
         # Spec §4.2: chỉ OLE Equation (Equation.DSMT4 / Equation.3) mới được
         # coi là công thức MathType. w:object cũng có thể chứa các loại OLE
@@ -77,7 +93,11 @@ class Context:
             self.warnings.append(f"{oid}: OLE render rId {rid} không giải được")
             self.manifest.append({"id": oid, "type": "mathtype", "source": "missing", "rid": rid})
         else:
-            fn = f"{oid}.{self._ext(path)}"
+            ext = self._ext(path)
+            fn = f"{oid}.{ext}"
             self.written[fn] = data
-            self.manifest.append({"id": oid, "type": "mathtype", "source": path})
+            self._ocr_mathtype(oid, data, ext)
+            self.manifest.append(
+                {"id": oid, "type": "mathtype", "source": path, "latex": self.latex.get(oid)}
+            )
         return f"[!m:${oid}$]"
