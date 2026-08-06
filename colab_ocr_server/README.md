@@ -9,9 +9,13 @@ bằng DeepSeek-OCR-2, trả JSON `{"latex": "..."}`.
 
 ```python
 !apt-get -qq update && apt-get -qq install -y libreoffice-core libreoffice-impress
+# Không pin torch/torchvision — Colab đã có sẵn bản khớp với driver/CUDA của máy.
+# Pin thêm torch sẽ gây xung đột (vd: torchvision requires torch==2.11.0, but you have torch 2.6.0).
 !pip install -q fastapi "uvicorn[standard]" python-multipart pyngrok nest_asyncio \
-    torch==2.6.0 transformers==4.46.3 tokenizers==0.20.3 einops addict easydict
+    transformers==4.46.3 tokenizers==0.20.3 einops addict easydict
 ```
+
+> **Lưu ý:** các dòng bắt đầu bằng `!` (như `!apt-get`, `!pip`) chỉ chạy được **bên trong 1 ô (cell) của notebook Colab**, không phải lệnh PowerShell/terminal trên máy bạn.
 
 ## 2. Cell chạy server + expose ra internet
 
