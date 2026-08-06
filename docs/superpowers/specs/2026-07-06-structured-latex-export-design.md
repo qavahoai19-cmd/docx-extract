@@ -9,7 +9,7 @@
 
 ## 1. Quyết định đã chốt (từ brainstorm)
 
-1. **MathType OLE (`mathtype_N`, 16 cái): giữ nguyên dạng ảnh** như Azota — KHÔNG convert sang LaTeX. Chỉ OMML ra LaTeX.
+1. **MathType OLE (`mathtype_N`, 16 cái): ~~giữ nguyên dạng ảnh~~ CẬP NHẬT 2026-08-06** — nay được OCR sang LaTeX qua DeepSeek-OCR-2 (xem `docs/superpowers/specs/2026-08-06-mathtype-ocr-latex-design.md`); asset ảnh WMF/EMF vẫn giữ làm backup/tham chiếu như cũ. Chỉ OMML dùng converter cây cấu trúc trực tiếp (không qua OCR).
 2. **OMML → LaTeX bằng XSLT chạy qua `lxml`** (không thêm binary ngoài). Bundle 2 file `.xsl` mã nguồn mở. Fallback: converter đệ quy thuần Python.
 3. **Output: giữ `markup.txt` như cũ + thêm `structured.json`.** LaTeX nằm trong JSON (và trong text field thay cho token `mathml_N`). `markup.txt` không đổi (vẫn tương thích Azota).
 4. **Schema đầy đủ, phân loại theo từng loại câu** (`mcq` / `true_false` / `short_answer`).
