@@ -59,6 +59,10 @@ w:object (OLE Equation) ─ context.ole() ─┬─> ghi asset mathtype_N.wmf (n
 
 Thêm `torch`, `transformers` thẳng vào `[project.dependencies]` chính trong `pyproject.toml` — bắt buộc cài cho mọi người dùng `docx-extract` (không tách optional group). Package nặng (~2GB+ khi cài, cộng 6.67GB weight tải lần đầu khi chạy lần đầu qua `transformers` cache) là đánh đổi chấp nhận được để tính năng luôn sẵn sàng, không cần flag bật/tắt.
 
+## 7b. Addendum 2026-08-06 (pivot: HTTP client thay vì local model)
+
+Máy dev không GPU → chạy DeepSeek-OCR-2 local (torch/transformers/pythonnet) không khả thi. Đổi sang: `mathocr.image_to_latex(data, ext)` gọi HTTP POST tới endpoint OCR ngoài (do người dùng tự host trên Google Colab/RunPod/...), thay vì tự load model. Endpoint tự lo convert WMF/EMF→raster + chạy OCR. Cấu hình qua biến môi trường `DOCX_EXTRACT_OCR_ENDPOINT` (bắt buộc để bật tính năng), `DOCX_EXTRACT_OCR_API_KEY` (optional), `DOCX_EXTRACT_OCR_TIMEOUT` (optional, mặc định 30s). Đã bỏ `torch`/`transformers`/`pythonnet` khỏi `pyproject.toml`, thêm `requests`. Interface `image_to_latex(data: bytes, ext: str) -> str | None` và điểm gọi trong `Context._ocr_mathtype` giữ nguyên — không cần sửa `context.py`.
+
 ## 7. Rủi ro / lưu ý
 
 - Máy dev hiện tại **không có GPU** → OCR CPU sẽ rất chậm (có thể vài chục giây/công thức). Chấp nhận được cho chạy offline, nhưng cần biết trước.
