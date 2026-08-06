@@ -1,0 +1,100 @@
+"""FastAPI OCR server chạy trong Google Colab (T4 GPU).
+
+Nhận ảnh công thức MathType OLE (WMF/EMF) từ docx-extract, convert sang PNG
+(LibreOffice headless — Colab chạy Linux, không có GDI+ Windows), OCR sang
+LaTeX bằng DeepSeek-OCR-2. Khớp đúng contract của docx_extract.mathocr.
+
+Cách chạy trong Colab — xem README.md để có đầy đủ các cell.
+"""
+import os
+import subprocess
+import tempfile
+import threading
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi.responses import JSONResponse
+
+from ocr_logic import build_soffice_cmd, ext_of, needs_conversion
+
+app = FastAPI(title="docx-extract mathtype OCR server")
+
+# DeepSeek-OCR-2 (transformers wrapper model.infer()) không phải batch API —
+# chạy song song nhiều request trên cùng 1 GPU dễ tranh chấp bộ nhớ/crash.
+# Khóa để đảm bảo tại một thời điểm chỉ có 1 lần suy luận GPU chạy.
+_gpu_lock = threading.Lock()
+
+_MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
+_model = None
+_tokenizer = None
+
+
+def _get_model():
+    """Lazy-singleton load model — chỉ tải/khởi tạo một lần cho cả process."""
+    global _model, _tokenizer
+    if _model is None:
+        import torch
+        from transformers import AutoModel, AutoTokenizer
+
+        _tokenizer = AutoTokenizer.from_pretrained(_MODEL_NAME, trust_remote_code=True)
+        m = AutoModel.from_pretrained(
+            _MODEL_NAME, trust_remote_code=True, use_safetensors=True
+        )
+        _model = m.eval().cuda().to(torch.bfloat16)
+    return _tokenizer, _model
+
+
+def convert_to_png(data: bytes, ext: str) -> bytes:
+    """Convert WMF/EMF bytes -> PNG bytes qua LibreOffice headless (subprocess)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        in_path = os.path.join(tmp, f"formula.{ext}")
+        with open(in_path, "wb") as f:
+            f.write(data)
+        subprocess.run(
+            build_soffice_cmd(in_path, tmp),
+            check=True, capture_output=True, timeout=60,
+        )
+        out_path = os.path.join(tmp, "formula.png")
+        with open(out_path, "rb") as f:
+            return f.read()
+
+
+def run_ocr(png_bytes: bytes) -> str:
+    """Chạy DeepSeek-OCR-2 trên ảnh PNG công thức (đã tightly-cropped sẵn)."""
+    tokenizer, model = _get_model()
+    with tempfile.TemporaryDirectory() as tmp:
+        img_path = os.path.join(tmp, "formula.png")
+        with open(img_path, "wb") as f:
+            f.write(png_bytes)
+        with _gpu_lock:
+            result = model.infer(
+                tokenizer,
+                prompt="<image>\nFree OCR.",
+                image_file=img_path,
+                base_size=640,     # ảnh công thức nhỏ, đã crop sẵn -> không cần 1024
+                image_size=640,
+                crop_mode=False,   # KHÔNG tile — đây là 1 công thức đơn, không phải cả trang
+                save_results=False,
+                output_path=tmp,
+            )
+    return result.strip() if isinstance(result, str) else ""
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/ocr")
+async def ocr(file: UploadFile = File(...)):
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+    ext = ext_of(file.filename or "")
+    try:
+        png = convert_to_png(data, ext) if needs_conversion(ext) else data
+        latex = run_ocr(png)
+    except Exception as exc:
+        # Lỗi OCR/convert -> vẫn trả 200 với latex rỗng, để client (docx-extract)
+        # coi như "không OCR được" (cảnh báo, giữ ảnh gốc) thay vì raise 500 phá batch.
+        return JSONResponse({"latex": "", "error": str(exc)})
+    return JSONResponse({"latex": latex})
