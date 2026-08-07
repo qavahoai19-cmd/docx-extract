@@ -43,6 +43,17 @@ def _get_model():
     return _tokenizer, _model
 
 
+@app.on_event("startup")
+def _preload_model_on_startup() -> None:
+    """Tải + khởi tạo model ngay khi server start, trước khi nhận request đầu tiên.
+
+    Nếu không có bước này, request OCR đầu tiên sẽ tự kích hoạt _get_model() và
+    bị treo rất lâu (download + load model ~3-3.4B tham số) ngay giữa lúc client
+    tưởng server đã sẵn sàng.
+    """
+    _get_model()
+
+
 def convert_to_png(data: bytes, ext: str) -> bytes:
     """Convert WMF/EMF bytes -> PNG bytes qua LibreOffice headless (subprocess)."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -81,7 +92,7 @@ def run_ocr(png_bytes: bytes) -> str:
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "model_loaded": _model is not None}
 
 
 @app.post("/ocr")
