@@ -6,6 +6,7 @@ LaTeX bằng DeepSeek-OCR-2. Khớp đúng contract của docx_extract.mathocr.
 
 Cách chạy trong Colab — xem README.md để có đầy đủ các cell.
 """
+import io
 import os
 import subprocess
 import tempfile
@@ -13,6 +14,7 @@ import threading
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
+from PIL import Image
 
 from ocr_logic import build_soffice_cmd, ext_of, needs_conversion
 
@@ -69,8 +71,37 @@ def _preload_model_on_startup() -> None:
     _get_model()
 
 
+def _crop_whitespace(png_bytes: bytes, padding: int = 20) -> bytes:
+    """Cat bo vien trang thua quanh cong thuc, giu 1 khoang padding nho.
+
+    LibreOffice xuat WMF/EMF sang PNG tren ca 1 "trang" mac dinh (vd 800x1131),
+    trong khi noi dung cong thuc thuc te thuong chi chiem 1 vung rat nho o giua
+    (vd 1 ky hieu <=50x50px giua canvas trang khong lo). Vung trang qua lon so
+    voi noi dung khien DeepSeek-OCR-2 "lac" va hallucinate ra noi dung khong
+    lien quan (da quan sat thuc te: tra ve ca doan van hoc thuat khong lien
+    quan cho 1 anh chi co mui ten "=>"). Crop sat noi dung + padding nho giup
+    model tap trung dung vao cong thuc.
+    """
+    img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    # bbox cua vung khac mau trang (nguong 250 de chiu nhieu anti-aliasing nhe)
+    gray = img.convert("L")
+    bbox = gray.point(lambda p: 0 if p < 250 else 255).getbbox()
+    if bbox is None:
+        return png_bytes  # anh toan trang -> tra nguyen goc, de OCR tu bao loi
+    left, top, right, bottom = bbox
+    left = max(0, left - padding)
+    top = max(0, top - padding)
+    right = min(img.width, right + padding)
+    bottom = min(img.height, bottom + padding)
+    cropped = img.crop((left, top, right, bottom))
+    out = io.BytesIO()
+    cropped.save(out, format="PNG")
+    return out.getvalue()
+
+
 def convert_to_png(data: bytes, ext: str) -> bytes:
-    """Convert WMF/EMF bytes -> PNG bytes qua LibreOffice headless (subprocess)."""
+    """Convert WMF/EMF bytes -> PNG bytes qua LibreOffice headless (subprocess),
+    sau do crop bot vien trang thua (xem _crop_whitespace)."""
     with tempfile.TemporaryDirectory() as tmp:
         in_path = os.path.join(tmp, f"formula.{ext}")
         with open(in_path, "wb") as f:
@@ -81,7 +112,8 @@ def convert_to_png(data: bytes, ext: str) -> bytes:
         )
         out_path = os.path.join(tmp, "formula.png")
         with open(out_path, "rb") as f:
-            return f.read()
+            raw_png = f.read()
+    return _crop_whitespace(raw_png)
 
 
 def run_ocr(png_bytes: bytes) -> str:
@@ -94,7 +126,7 @@ def run_ocr(png_bytes: bytes) -> str:
         with _gpu_lock:
             result = model.infer(
                 tokenizer,
-                prompt="<image>\nFree OCR.",
+                prompt="<image>\nOCR this formula to LaTeX.",
                 image_file=img_path,
                 # QUAN TRONG: Qwen2Decoder2Encoder.forward() (deepencoderv2.py) chi dinh
                 # nghia 2 embedding co dinh cho n_query == 144 (ung voi anh 768) hoac
