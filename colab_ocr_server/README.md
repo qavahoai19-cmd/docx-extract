@@ -5,39 +5,56 @@ Server FastAPI nhỏ, chạy trong notebook Colab, nhận ảnh công thức Mat
 Colab chạy Linux, không dùng GDI+ Windows như thiết kế ban đầu), OCR sang LaTeX
 bằng DeepSeek-OCR-2, trả JSON `{"latex": "..."}`.
 
+**Khuyến nghị: dùng notebook có sẵn `docx_extract_ocr_server.ipynb`** trong cùng thư mục
+(mở trực tiếp trong Colab, chạy lần lượt từng cell) — file này thực hiện đúng các bước dưới
+đây, đã đóng gói sẵn. Phần dưới đây giải thích ý nghĩa từng bước cho ai muốn tự ráp thủ công.
+
 ## 1. Cell cài đặt (chạy 1 lần / phiên Colab)
 
 ```python
 !apt-get -qq update && apt-get -qq install -y libreoffice-core libreoffice-impress
 # Không pin torch/torchvision — Colab đã có sẵn bản khớp với driver/CUDA của máy.
 # Pin thêm torch sẽ gây xung đột (vd: torchvision requires torch==2.11.0, but you have torch 2.6.0).
-!pip install -q fastapi "uvicorn[standard]" python-multipart pyngrok nest_asyncio \
+!pip install -q fastapi "uvicorn[standard]" python-multipart \
     transformers==4.46.3 tokenizers==0.20.3 einops addict easydict
+
+# Ngrok binary that (khong dung thu vien python pyngrok), + domain co dinh o buoc sau
+!wget -q -O /content/ngrok-v3-stable-linux-amd64.tgz \
+    https://bin.equinox.io/c/bNyj1mQVY4c/ngrok-v3-stable-linux-amd64.tgz
+!tar xzf /content/ngrok-v3-stable-linux-amd64.tgz -C /content
 ```
 
 > **Lưu ý:** các dòng bắt đầu bằng `!` (như `!apt-get`, `!pip`) chỉ chạy được **bên trong 1 ô (cell) của notebook Colab**, không phải lệnh PowerShell/terminal trên máy bạn.
 
-## 2. Cell chạy server + expose ra internet
+## 2. Chạy server + ngrok tunnel ở chế độ nền, dùng domain cố định
+
+Trước tiên đăng ký 1 domain tĩnh miễn phí tại https://dashboard.ngrok.com/domains
+(free plan cho 1 domain cố định, ví dụ `ten-cua-ban.ngrok-free.app`) — nhờ đó URL
+endpoint **không đổi** giữa các lần chạy lại, khác với `ngrok http 8000` không domain
+(sinh URL ngẫu nhiên mỗi lần, dễ gây lỗi "gọi nhầm URL cũ đã tắt").
 
 ```python
-import nest_asyncio, uvicorn, threading
-from pyngrok import ngrok
+NGROK_AUTHTOKEN = "<token của bạn>"
+NGROK_DOMAIN = "ten-cua-ban.ngrok-free.app"
 
-nest_asyncio.apply()
-ngrok.set_auth_token("<NGROK_AUTHTOKEN_CỦA_BẠN>")  # ngrok.com, free account đủ dùng
-public_url = ngrok.connect(8000)
-print("OCR endpoint:", f"{public_url}/ocr")
+!/content/ngrok authtoken "$NGROK_AUTHTOKEN"
 
-# upload ocr_server.py + ocr_logic.py lên Colab (hoặc git clone repo) trước khi chạy dòng dưới
-threading.Thread(
-    target=lambda: uvicorn.run("ocr_server:app", host="0.0.0.0", port=8000),
-    daemon=True,
-).start()
+!nohup uvicorn ocr_server:app --host 0.0.0.0 --port 8000 --log-level info \
+    > /content/uvicorn.log 2>&1 &
+!nohup /content/ngrok http 8000 --domain="$NGROK_DOMAIN" --log stdout \
+    > /content/ngrok.log 2>&1 &
 ```
 
-Copy URL in ra, đặt vào máy chạy `docx-extract`:
+Cả 2 tiến trình chạy nền (`&`, `nohup`) — không cần giữ cell ở trạng thái "đang chạy" mãi,
+chỉ cần **runtime Colab (container) chưa bị ngắt**. Xem log khi cần:
+```python
+!tail -n 50 /content/uvicorn.log
+!tail -n 50 /content/ngrok.log
+```
+
+Đặt biến môi trường trên máy chạy `docx-extract` (chỉ cần đặt 1 lần vì domain cố định):
 ```powershell
-$env:DOCX_EXTRACT_OCR_ENDPOINT = "https://xxxx.ngrok-free.app/ocr"
+$env:DOCX_EXTRACT_OCR_ENDPOINT = "https://ten-cua-ban.ngrok-free.app/ocr"
 ```
 
 ## 3. Benchmark trước khi chạy hàng loạt (đo số thật trên máy/model của bạn)
