@@ -44,11 +44,14 @@ def _get_model():
         # dtype=bfloat16 + low_cpu_mem_usage=True: nap thang trong so bf16, tranh
         # buoc trung gian nap fp32 vao RAM CPU truoc (~13-14GB, de gay OOM-kill tren
         # RAM CPU free-tier Colab ~12GB, khac voi VRAM GPU).
+        # Luu y: dung torch_dtype (khong phai dtype) -- code remote cua model nay
+        # (DeepseekOCR2ForCausalLM, transformers==4.46.3) chi nhan torch_dtype qua
+        # __init__, dtype se bao TypeError: unexpected keyword argument 'dtype'.
         m = AutoModel.from_pretrained(
             _MODEL_NAME,
             trust_remote_code=True,
             use_safetensors=True,
-            dtype=torch.bfloat16,
+            torch_dtype=torch.bfloat16,
             low_cpu_mem_usage=True,
         )
         _model = m.eval().cuda()
