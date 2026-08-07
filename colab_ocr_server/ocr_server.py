@@ -96,8 +96,14 @@ def run_ocr(png_bytes: bytes) -> str:
                 tokenizer,
                 prompt="<image>\nFree OCR.",
                 image_file=img_path,
-                base_size=640,     # ảnh công thức nhỏ, đã crop sẵn -> không cần 1024
-                image_size=640,
+                # QUAN TRONG: Qwen2Decoder2Encoder.forward() (deepencoderv2.py) chi dinh
+                # nghia 2 embedding co dinh cho n_query == 144 (ung voi anh 768) hoac
+                # n_query == 256 (ung voi anh 1024) -- khong co nhanh else. base_size=640
+                # (hoac 512/1280) se sinh n_query khac 144/256 -> "param_img" khong duoc
+                # gan -> UnboundLocalError. Chi 768 va 1024 la gia tri hop le trong thuc
+                # te, du comment trong code goc co nhac 640/512/1280.
+                base_size=1024,
+                image_size=1024,
                 crop_mode=False,   # KHÔNG tile — đây là 1 công thức đơn, không phải cả trang
                 save_results=False,
                 output_path=tmp,
