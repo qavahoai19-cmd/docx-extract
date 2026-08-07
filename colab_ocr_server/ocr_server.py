@@ -36,10 +36,17 @@ def _get_model():
         from transformers import AutoModel, AutoTokenizer
 
         _tokenizer = AutoTokenizer.from_pretrained(_MODEL_NAME, trust_remote_code=True)
+        # dtype=bfloat16 + low_cpu_mem_usage=True: nap thang trong so bf16, tranh
+        # buoc trung gian nap fp32 vao RAM CPU truoc (~13-14GB, de gay OOM-kill tren
+        # RAM CPU free-tier Colab ~12GB, khac voi VRAM GPU).
         m = AutoModel.from_pretrained(
-            _MODEL_NAME, trust_remote_code=True, use_safetensors=True
+            _MODEL_NAME,
+            trust_remote_code=True,
+            use_safetensors=True,
+            dtype=torch.bfloat16,
+            low_cpu_mem_usage=True,
         )
-        _model = m.eval().cuda().to(torch.bfloat16)
+        _model = m.eval().cuda()
     return _tokenizer, _model
 
 
