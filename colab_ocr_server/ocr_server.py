@@ -106,6 +106,11 @@ def run_ocr(png_bytes: bytes) -> str:
                 image_size=1024,
                 crop_mode=False,   # KHÔNG tile — đây là 1 công thức đơn, không phải cả trang
                 save_results=False,
+                # QUAN TRONG: infer() chi return outputs khi eval_mode=True. Voi
+                # eval_mode=False (mac dinh) va save_results=False, ham chay xong OCR
+                # (in qua streamer noi bo) nhung KHONG return gi ca (None) -> code goi
+                # se luon nhan chuoi rong. Phai bat eval_mode=True de lay duoc ket qua.
+                eval_mode=True,
                 output_path=tmp,
             )
     return result.strip() if isinstance(result, str) else ""
