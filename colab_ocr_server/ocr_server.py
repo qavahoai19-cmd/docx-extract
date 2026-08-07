@@ -27,6 +27,11 @@ _MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
 _model = None
 _tokenizer = None
 
+# Neu bien moi truong HF_HOME duoc dat truoc khi uvicorn start (vd tro vao
+# Google Drive da mount), transformers se cache trong so model vao do -> lan
+# sau khoi dong lai runtime Colab khong phai tai lai tu HuggingFace.
+# Xem Cell 4b trong notebook de dat bien nay.
+
 
 def _get_model():
     """Lazy-singleton load model — chỉ tải/khởi tạo một lần cho cả process."""
