@@ -12,7 +12,7 @@ import tempfile
 import threading
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from ocr_logic import build_soffice_cmd, ext_of, needs_conversion
 
@@ -119,6 +119,21 @@ def run_ocr(png_bytes: bytes) -> str:
 @app.get("/health")
 def health():
     return {"status": "ok", "model_loaded": _model is not None}
+
+
+@app.post("/debug_png")
+async def debug_png(file: UploadFile = File(...)):
+    """Debug: convert WMF/EMF -> PNG va tra ve chinh anh PNG do (khong chay OCR).
+
+    Dung de kiem tra buoc convert_to_png() co ra anh cong thuc hop le hay khong
+    (vd anh trong/loi/qua nho) ma khong can vao Colab xem thu cong.
+    """
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="empty file")
+    ext = ext_of(file.filename or "")
+    png = convert_to_png(data, ext) if needs_conversion(ext) else data
+    return Response(content=png, media_type="image/png")
 
 
 @app.post("/ocr")
