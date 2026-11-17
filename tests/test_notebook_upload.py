@@ -49,15 +49,19 @@ def test_duplicate_names_and_partial_ocr_failure_are_preserved(tmp_path, monkeyp
             pass
 
     calls = []
-    def clean(path, *, ocr_client):
-        calls.append(Path(path))
-        failures = int(len(calls) == 2)
-        return "Câu 1", SimpleNamespace(written={"image.wmf": b"original"},
-            manifest=[{"type": "mathtype", "id": "mathtype_1", "latex": "" if failures else "x"}],
-            warnings=[], ocr_stats={"total": 1, "failures": failures})
+    def clean(paths, client):
+        documents = []
+        for path in paths:
+            calls.append(Path(path))
+            failures = int(len(calls) == 2)
+            context = SimpleNamespace(written={"image.wmf": b"original"},
+                manifest=[{"type": "mathtype", "id": "mathtype_1", "latex": "" if failures else "x"}],
+                warnings=[], ocr_stats={"total": 1, "failures": failures})
+            documents.append(SimpleNamespace(markup="Câu 1", context=context, error=""))
+        return documents, {"total": 2}
 
     monkeypatch.setattr(upload, "OCRClient", Client)
-    monkeypatch.setattr(upload, "clean_docx", clean)
+    monkeypatch.setattr(upload, "clean_docx_batch", clean)
     archive, rows = upload.process_documents([("de.docx", b"first"), ("de.docx", b"second")], tmp_path, "http://test/ocr")
     assert len(set(calls)) == 2 and [p.read_bytes() for p in calls] == [b"first", b"second"]
     assert [r["status"] for r in rows] == ["ok", "needs_review"]

@@ -11,7 +11,8 @@ from time import perf_counter
 from uuid import uuid4
 import zipfile
 
-from docx_extract import clean_docx, write_outputs
+from docx_extract import write_outputs
+from docx_extract.batch import clean_docx_batch
 from docx_extract.mathocr import OCRClient
 
 
@@ -69,24 +70,30 @@ def process_documents(documents, work_root, endpoint, progress=None):
     results = job / "ket-qua"
     inputs.mkdir(parents=True)
     results.mkdir()
-    rows = []
+    rows, sources = [], []
     for index, (name, content) in enumerate(documents, 1):
         stem = re.sub(r"[^\w.-]+", "-", Path(name).stem).strip(".")[:100] or "de"
         label = f"{index:02d}-{stem}"
         source = inputs / (label + ".docx")
         source.write_bytes(content)
+        rows.append({"file": name, "output": label})
+        sources.append(source)
+    with OCRClient(endpoint=endpoint, cache_path=root/"cache"/"ocr.sqlite3",
+                   batch_size=32, progress=progress) as client:
+        extracted, batch_metrics = clean_docx_batch(sources, client)
+    for row, document in zip(rows, extracted):
         started = perf_counter()
-        row = {"file": name, "output": label}
         try:
-            with OCRClient(endpoint=endpoint, cache_path=root/"cache"/"ocr.sqlite3", progress=progress) as client:
-                markup, context = clean_docx(source, ocr_client=client)
-            write_outputs(markup, context, str(results/label))
+            if document.error:
+                raise ValueError(document.error)
+            context = document.context
+            write_outputs(document.markup, context, str(results/row["output"]))
             row.update(status="needs_review" if context.ocr_stats.get("failures") else "ok",
                        ocr=context.ocr_stats, warnings=context.warnings)
         except Exception as exc:
             row.update(status="error", error=str(exc))
-        row["elapsed_s"] = perf_counter() - started
-        rows.append(row)
+        row["elapsed_s"] = (document.context.ocr_stats.get("document_s", 0) if document.context is not None else 0) + perf_counter() - started
+    (results/"batch-metrics.json").write_text(json.dumps(batch_metrics, ensure_ascii=False, indent=2), encoding="utf-8")
     (results/"summary.json").write_text(json.dumps(rows, ensure_ascii=False, indent=2), encoding="utf-8")
     # Only results are archived, not uploaded originals or the shared OCR cache.
     archive = Path(shutil.make_archive(str(root/job_name), "zip", results))
@@ -124,10 +131,15 @@ def show_upload_ui(work_root, endpoint):
                 documents = gather_documents(upload_items(uploader.value))
                 print(f"Đang đọc {len(documents)} đề…", flush=True)
                 archive, rows = process_documents(documents, work_root, endpoint, update_progress)
+                with zipfile.ZipFile(archive) as result_zip:
+                    batch_metrics = json.loads(result_zip.read("batch-metrics.json"))
+                print(f"OCR cả lô: {batch_metrics.get('total',0)} ảnh, {batch_metrics.get('unique',0)} khác nhau, "
+                      f"{batch_metrics.get('deduplicated',0)} ảnh trùng, {batch_metrics.get('cache_hits',0)} từ cache, "
+                      f"{batch_metrics.get('http_requests',0)} request", flush=True)
                 for row in rows:
                     stats = row.get("ocr", {})
-                    detail = row.get("error") or f"{stats.get('total',0)} công thức, {stats.get('native_success',0)} đọc trực tiếp, {stats.get('cache_hits',0)} từ cache, {stats.get('failures',0)} lỗi"
-                    print(f"{row['file']}: {row['elapsed_s']:.2f}s — {detail}", flush=True)
+                    detail = row.get("error") or f"{stats.get('total',0)} công thức, {stats.get('failures',0)} lỗi OCR"
+                    print(f"{row['file']}: {detail}", flush=True)
                 total = sum(row.get("ocr", {}).get("total", 0) for row in rows)
                 progress.max = max(1, total)
                 progress.value = progress.max

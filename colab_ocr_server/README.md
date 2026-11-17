@@ -83,3 +83,13 @@ Backend mặc định `transformers` vẫn suy luận từng ảnh. Đặt `DOCX
 **Cell lặp lại cùng một ảnh ở mục 3 sẽ dùng cache sau lần đầu.** Để đo thông lượng OCR, sử dụng các công thức khác nhau và phép đo trước/sau toàn bộ đề.
 
 Xem [hướng dẫn chạy và benchmark](../docs/ocr-performance.md) để đo bản cũ, bản mới chưa cache và bản mới có cache. Số đo mock chỉ kiểm tra client/HTTP, không phải benchmark GPU.
+
+## 5. Gom nhiều đề và thử batch với chính DeepSeek hiện tại
+
+UI Kaggle gom tất cả ảnh MathType của lô DOCX trước khi OCR, loại ảnh trùng giữa các đề rồi gửi tối đa 32 ảnh/request. Luồng này bắt buộc OCR ảnh, không dùng bộ đọc MathType native. Ảnh trên Windows được chuyển song song bằng tối đa 4 worker CPU; đổi bằng `DOCX_EXTRACT_OCR_PREPARE_WORKERS=1..8`. Server cũng loại ảnh trùng và đọc cache trước khi chuyển WMF/EMF.
+
+Server giữ mặc định suy luận từng ảnh. Để thử encoder và decoder theo lô với cùng model, đặt `DOCX_OCR_INFERENCE_BATCH_SIZE=4` trước khi khởi động Uvicorn. Cần có thêm [transformers_batch.py](./transformers_batch.py) cạnh server. Chế độ này chỉ dành cho ảnh cố định 768/1024, không crop; không thay weights, prompt hoặc dtype của model. `DOCX_OCR_BATCH_MAX_TOKENS` mặc định 8192; đầu ra thiếu EOS bị đánh dấu lỗi, không cache.
+
+Lúc khởi động, server so đầu ra serial và batch trên ảnh thử, đo thời gian sau lượt warm-up đầu tiên. Nếu kết quả khác, chạy chậm hơn hoặc phát sinh lỗi, server tự dùng batch size 1. `/health` ghi `inference_batch_size`, `batch_verified`, `batch_validation_error`, `batch_validation_timings`. Đây là kiểm tra khởi động, chưa thay cho benchmark độ đúng và thời gian trên đề thật.
+
+Notebook Kaggle mới đặt `OCR_GPU_BATCH_SIZE=4` để thực hiện kiểm tra trên; có thể đặt 1 để dùng hẳn đường serial. Mục tiêu 20 đề/phút chưa được xác nhận trên GPU. Xem [kết quả kiểm tra tối ưu](../docs/ocr-optimization-2026-11-17.md).

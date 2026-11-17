@@ -1,0 +1,45 @@
+{
+  "mode": "mock_protocol_only_not_model_benchmark",
+  "documents": 20,
+  "reference_per_document_batch_8": {
+    "http_requests": 100,
+    "remote_images": 755,
+    "total": 762
+  },
+  "new_shared_batch_32": {
+    "total": 762,
+    "unique": 582,
+    "deduplicated": 180,
+    "remote_images": 582,
+    "http_requests": 19,
+    "cache_hits": 0,
+    "failures": 0
+  },
+  "changed_markup": 0,
+  "changed_sidecars": 0,
+  "changed_mock_latex": 0,
+  "native_math_attempts": 0,
+  "real_model_inference_calls": 0,
+  "source_documents": [
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\ĐƯA ĐỀ LÊN LMS_THA.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\ĐƯA ĐỀ LÊN LMS (3).docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\đề mẫu online cấp lớp số 3.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\khang2.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\Bài Kiểm tra toán số 3.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\Bài Kiểm tra toán số 31.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\trac_nghiem_o.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\BÀI_26_BIẾN_CỐ_VÀ_ĐỊNH_NGHĨA_CỔ_ĐIỂN_CỦA_XÁC_SUẤT.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\trac nghiem.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\ĐỀ VẬT LÍ LẦN 3_VER 2.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\DEKTGK1TRUCTUYEN-LY12-2022-2023 (HIEU THU).docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\CAU 9.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\SGD_Toan LMS_8.4.2026_1.2.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\TEST_mãu đề lms 3 phần - V (o).docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\ĐỀ SINH CHÍNH THỨC LẦN 1_1.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\20250520\\T. Bảy - CÂU 9-TRẮC NGHIỆM 4 LỰA CHỌN_converted.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\2026. ĐỀ LMS LẦN 2-filnal.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\mãu đề lms 3 phần - V.docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\20250520\\1. Câu 7 (2).docx",
+    "D:\\Downloads\\Telegram Desktop\\word\\word\\H12. CK2 (đề 2).docx"
+  ]
+}

@@ -8,6 +8,8 @@ Hiện chưa xác nhận đạt 6–7 giây. Phép đo GPU thật trên T4 trư�
 
 Luồng xử lý mới: bóc DOCX và cấp ID theo thứ tự tài liệu → gom công thức MathType → loại ảnh trùng → đọc cache → chuẩn bị ảnh → gọi OCR theo lô → cập nhật LaTeX bằng ID. OMML tiếp tục được chuyển trực tiếp bằng bộ đọc hiện có.
 
+UI upload hiện dùng luồng cả lô: bóc toàn bộ DOCX, thêm tiền tố ID riêng từng đề, OCR chung một lần rồi phục hồi ID gốc. Cache và khử ảnh trùng dùng chung cho cả lô, không đếm ảnh giống nhau giữa hai đề thành hai lượt suy luận. Số đo OCR chung nằm trong `batch-metrics.json`.
+
 Markup, thứ tự placeholder và sidecar gốc được giữ nguyên. Một ảnh lỗi không làm mất kết quả của các ảnh còn lại. Lỗi mạng dừng các request tiếp theo của lượt chạy, thay vì chờ timeout cho mọi công thức.
 
 ## Chạy thử
@@ -40,6 +42,7 @@ Server cũ vẫn nhận được ảnh riêng bằng `/ocr`; client chỉ thử 
 | `DOCX_EXTRACT_OCR_CACHE` | Cache người dùng, `docx-extract/ocr.sqlite3` | Đường dẫn SQLite; `off` để tắt cache bền |
 | `DOCX_EXTRACT_OCR_CACHE_VERSION` | 1 | Đổi giá trị để vô hiệu hóa cache client khi cần |
 | `DOCX_EXTRACT_OCR_PREPARE_IMAGES` | 1 | GDI+ chuyển WMF/EMF sang PNG trên Windows; `0` để gửi ảnh gốc |
+| `DOCX_EXTRACT_OCR_PREPARE_WORKERS` | 4 | Tối đa 1–8 worker CPU chuyển ảnh; không chạy nhiều model trên cùng GPU |
 | `DOCX_EXTRACT_OCR_RASTER_DPI` | 300 | Độ phân giải chuyển ảnh, khoảng 96–600; cạnh ảnh giới hạn 2400 px |
 | `DOCX_EXTRACT_OCR_TIMEOUT` | 30 | Thời gian chờ request ảnh riêng |
 | `DOCX_EXTRACT_OCR_BATCH_TIMEOUT` | Theo số ảnh, tối đa 120 giây với cấu hình mặc định | Thời gian chờ batch; có thể đặt riêng |
@@ -54,6 +57,8 @@ GDI+ không yêu cầu GPU hoặc Python package bổ sung. PNG có thể lớn 
 - **vLLM, tùy chọn:** đặt `DOCX_OCR_BACKEND=vllm` trước khi khởi động server. Cần môi trường vLLM/CUDA/GPU tương thích; chưa được benchmark trên GPU của người dùng. Backend này đưa nhiều ảnh vào một lần `LLM.generate`. `DOCX_OCR_MAX_TOKENS` mặc định 1024; kết quả chạm giới hạn token được đánh dấu lỗi và không cache, không coi công thức bị cắt là hợp lệ.
 
 `DOCX_OCR_MODEL_REVISION` chọn revision model. `DOCX_OCR_IMAGE_SIZE` nhận 768 hoặc 1024, mặc định 1024, áp dụng cho backend Transformers. Giữ 1024 đến khi đã đối chiếu chất lượng công thức trên mẫu thật.
+
+Có chế độ Transformers batch thử nghiệm, giữ model hiện tại: đặt `DOCX_OCR_INFERENCE_BATCH_SIZE=4` (server mặc định 1), dùng ảnh cố định không crop. Server kiểm tra đầu ra đầy đủ khớp serial và thời gian nhanh hơn trên ảnh thử trước khi bật; nếu kiểm tra không đạt sẽ tự về 1. Notebook mới yêu cầu thử 4, báo kích thước thực tế và số giây kiểm tra trong `/health`. `DOCX_OCR_BATCH_MAX_TOKENS` mặc định 8192; thiếu EOS là lỗi. Chưa có benchmark GPU đề thật cho chế độ này, nên không dùng kiểm tra khởi động để công nhận mục tiêu 20 đề/phút.
 
 `DOCX_OCR_DTYPE=auto` chọn FP16 cho T4/P100, BF16 cho GPU có hỗ trợ native; `DOCX_OCR_ATTENTION=eager` dùng attention tương thích với các GPU này. `DOCX_OCR_WARMUP=1` chạy thử một công thức trước khi server nhận request. `/health` có `warmed_up` và `dtype`. Đặt `DOCX_OCR_API_KEY` trên server để yêu cầu Bearer key cho endpoint OCR; giá trị phía client là `DOCX_EXTRACT_OCR_API_KEY`.
 

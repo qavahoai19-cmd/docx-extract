@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import sqlite3
+from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
 from urllib.parse import urlsplit, urlunsplit
 
@@ -33,11 +34,13 @@ class OCRClient:
     """
 
     def __init__(self, *, endpoint=None, cache_path=None, batch_size=None,
-                 prepare=None, session=None, progress=None):
+                 prepare=None, session=None, progress=None, prepare_workers=None):
         self.endpoint = endpoint if endpoint is not None else os.getenv("DOCX_EXTRACT_OCR_ENDPOINT", "")
         self.timeout = max(1, float(os.getenv("DOCX_EXTRACT_OCR_TIMEOUT", "30")))
         self.batch_size = max(1, min(32, int(batch_size or os.getenv("DOCX_EXTRACT_OCR_BATCH_SIZE", "8"))))
         self.prepare = prepare if prepare is not None else os.getenv("DOCX_EXTRACT_OCR_PREPARE_IMAGES", "1") != "0"
+        self.prepare_workers = max(1, min(8, int(prepare_workers if prepare_workers is not None
+                                               else os.getenv("DOCX_EXTRACT_OCR_PREPARE_WORKERS", "4"))))
         self.progress = progress
         self.session = session if session is not None else requests.Session()
         self.headers = {}
@@ -167,6 +170,24 @@ class OCRClient:
                 mapped[oid] = {"latex": None, "error": self.transport_error}
         return mapped
 
+    def _prepare_chunk(self, selected):
+        representatives = [group[0] for _, group in selected]
+
+        def convert(item):
+            oid, data, ext = item
+            prepared, prepared_ext = prepare_image(data, ext) if self.prepare else (data, ext)
+            return oid, prepared, prepared_ext
+
+        if self.prepare and self.prepare_workers > 1 and len(representatives) > 1 and any(
+                ext in {"wmf", "emf"} for _, _, ext in representatives):
+            with ThreadPoolExecutor(max_workers=self.prepare_workers) as pool:
+                chunk = list(pool.map(convert, representatives))
+        else:
+            chunk = list(map(convert, representatives))
+        self.stats["rasterized"] += sum(converted[2] != original[2]
+                                         for converted, original in zip(chunk, representatives))
+        return chunk
+
     def recognize(self, items):
         """Return results by stable id; failures keep original images, never cache.
 
@@ -205,12 +226,7 @@ class OCRClient:
                     output.update({oid: {"latex": None, "error": transport_error} for oid, _, _ in group})
                 continue
             prepare_start = perf_counter()
-            chunk = []
-            for _, group in selected:
-                oid, data, ext = group[0]
-                prepared, prepared_ext = prepare_image(data, ext) if self.prepare else (data, ext)
-                self.stats["rasterized"] += int(prepared_ext != ext)
-                chunk.append((oid, prepared, prepared_ext))
+            chunk = self._prepare_chunk(selected)
             self.stats["prepare_s"] += perf_counter() - prepare_start
             self.stats["remote_images"] += len(chunk)
             try:

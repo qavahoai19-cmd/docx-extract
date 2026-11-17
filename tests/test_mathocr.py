@@ -75,6 +75,25 @@ def test_batch_deduplicates_and_maps_out_of_order_results():
     assert client.stats["deduplicated"] == 1
 
 
+def test_parallel_conversion_preserves_ids_and_converts_duplicates_once(monkeypatch):
+    import threading
+    barrier = threading.Barrier(2)
+    calls = []
+
+    def convert(data, ext):
+        calls.append(data)
+        barrier.wait(timeout=2)
+        return data + b"png", "png"
+
+    monkeypatch.setattr(mathocr, "prepare_image", convert)
+    with mathocr.OCRClient(endpoint="http://test/ocr", session=BatchSession(), cache_path="off",
+                           prepare=True, prepare_workers=2) as client:
+        results = client.recognize([("one", b"a", "wmf"), ("two", b"b", "emf"), ("repeat", b"a", "wmf")])
+    assert sorted(calls) == [b"a", b"b"]
+    assert results["one"] == results["repeat"]
+    assert results["two"]["latex"] == "latex:two" and client.stats["rasterized"] == 2
+
+
 def test_persistent_cache_reuses_success_and_invalidates_model_revision(tmp_path):
     cache = tmp_path / "cache.sqlite3"
     jobs = [("m1", b"one", "png"), ("m2", b"two", "png")]

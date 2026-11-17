@@ -69,6 +69,7 @@ RUN_BENCHMARK = False
 RUN_HEAVY_BENCHMARK = False
 HEAVY_DOCX_PATH = ""  # Đường dẫn DOCX được gắn riêng trong /kaggle/input
 ENABLE_TUNNEL = False
+OCR_GPU_BATCH_SIZE = 4  # Startup checks parity; falls back to 1 if unsupported.
 MODEL_REVISION = {revision!r}
 WORK_ROOT = Path("/kaggle/working/docx-ocr")
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -127,6 +128,7 @@ with socket.socket() as listener:
 ENDPOINT=f"http://127.0.0.1:{PORT}/ocr"
 environment=os.environ.copy()
 environment.update(DOCX_OCR_BACKEND="transformers",DOCX_OCR_DTYPE="auto",
+                   DOCX_OCR_INFERENCE_BATCH_SIZE=str(OCR_GPU_BATCH_SIZE),
                    DOCX_OCR_ATTENTION="eager",DOCX_OCR_WARMUP="1",
                    DOCX_OCR_IMAGE_SIZE="1024",DOCX_OCR_MODEL_REVISION=MODEL_REVISION,
                    PYTHONPATH=str(WORK_ROOT/"src"))
@@ -236,13 +238,13 @@ if STOP_NOW:
             process.terminate();process.wait(timeout=15)
     print("Đã dừng các process của notebook; có thể tắt session GPU.")
 ''',"stop"))
-    cells.append(cell("markdown", "## Đọc đề mới\nChọn DOCX hoặc ZIP chứa DOCX từ máy, rồi bấm **Đọc đề**. Chờ xử lý và bấm **Tải kết quả ZIP**. Lần đọc đề tiếp theo chỉ dùng lại ô này; không cần Run All. File kết quả cũng nằm trong Output.", "upload-note"))
+    cells.append(cell("markdown", "## Đọc đề mới\nChọn DOCX hoặc ZIP chứa DOCX từ máy, rồi bấm **Đọc đề**. Ảnh cần OCR được gom chung giữa các đề, loại trùng rồi gửi theo lô. Chờ xử lý và bấm **Tải kết quả ZIP**. Số liệu OCR chung ở batch-metrics.json; số giây tổng ở dưới nút tải. Mục tiêu 20 đề/phút chưa được xác nhận trên GPU. Lần sau dùng lại ô này; không cần Run All.", "upload-note"))
     cells.append(cell("code", '''if "exam_upload" in globals():
     exam_upload["uploader"].value=()
     exam_upload["output"].clear_output()
 sys.path.insert(0,str(WORK_ROOT/"kaggle_ocr"))
 import importlib
-for module in ("docx_extract.mathnative", "docx_extract.mathocr", "docx_extract.context", "docx_extract.assemble", "docx_extract", "notebook_upload"):
+for module in ("docx_extract.mathnative", "docx_extract.mathocr", "docx_extract.context", "docx_extract.xmlwalk", "docx_extract.runs", "docx_extract.tables", "docx_extract.assemble", "docx_extract.batch", "docx_extract", "notebook_upload"):
     importlib.reload(importlib.import_module(module))
 from notebook_upload import show_upload_ui
 exam_upload = show_upload_ui(WORK_ROOT, ENDPOINT)

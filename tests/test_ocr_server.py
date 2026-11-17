@@ -28,6 +28,7 @@ def png(mark=0):
 def client(monkeypatch):
     server._result_cache.clear()
     monkeypatch.setattr(server, "_backend", "transformers")
+    monkeypatch.setattr(server, "_inference_batch_size", 1)
     monkeypatch.setattr(server, "_get_model", lambda: (None, None))
     monkeypatch.setattr(server, "_infer_transformers", lambda data: "x^2")
     with TestClient(server.app) as client:
@@ -84,6 +85,37 @@ def test_server_cache_reuses_identical_images(client, monkeypatch):
     assert len(calls)==1
 
 
+def test_source_dedup_and_cache_happen_before_vector_conversion(client, monkeypatch):
+    converted, inferred = [], []
+
+    def prepare(items):
+        converted.append([oid for oid, _, _ in items])
+        return {oid: png() for oid, _, _ in items}, {}
+
+    monkeypatch.setattr(server, "_prepare_images", prepare)
+    monkeypatch.setattr(server, "_infer_transformers", lambda image: inferred.append(image) or "x")
+    first = client.post("/ocr/batch", data={"ids": '["a","b"]'},
+                        files=[("files", ("a.wmf", b"same")), ("files", ("b.wmf", b"same"))]).json()
+    second = client.post("/ocr", files={"file": ("again.wmf", b"same")}).json()
+    assert converted == [["a"]] and len(inferred) == 1
+    assert [row["latex"] for row in first["results"]] == ["x", "x"] and second["latex"] == "x"
+
+
+def test_source_cache_bypass_still_runs_conversion_and_model(client, monkeypatch):
+    converted, inferred = [], []
+
+    def prepare(items):
+        converted.append(len(items))
+        return {oid: png() for oid, _, _ in items}, {}
+
+    monkeypatch.setattr(server, "_prepare_images", prepare)
+    monkeypatch.setattr(server, "_infer_transformers", lambda image: inferred.append(image) or "x")
+    for _ in range(2):
+        response = client.post("/ocr", headers={"X-OCR-Cache": "off"}, files={"file": ("a.wmf", b"same")})
+        assert response.json()["latex"] == "x"
+    assert converted == [1, 1] and len(inferred) == 2
+
+
 def test_benchmark_can_bypass_server_cache(client, monkeypatch):
     calls=[]
     monkeypatch.setattr(server,"_infer_transformers",lambda image: calls.append(image) or "x^2")
@@ -135,6 +167,62 @@ def test_vllm_receives_a_real_image_batch(client, monkeypatch):
     response=client.post("/ocr/batch",data={"ids":'["a","b"]'},files=[("files",("one.png",png())),("files",("two.png",png(10)))])
     assert batches==[2]
     assert [r["latex"] for r in response.json()["results"]]==["x_0","x_1"]
+
+
+def test_transformers_batch_is_bounded_and_keeps_per_image_errors(client, monkeypatch):
+    batches = []
+    monkeypatch.setattr(server, "_inference_batch_size", 2)
+
+    def infer(images):
+        batches.append(len(images))
+        return [{"latex": "x"}, {"latex": "", "error": "token limit reached"}][:len(images)]
+
+    monkeypatch.setattr(server, "_infer_transformers_batch", infer)
+    response = client.post("/ocr/batch", data={"ids": '["a","b","c"]'},
+                           files=[("files", ("a.png", png())), ("files", ("b.png", png(5))),
+                                  ("files", ("c.png", png(10)))]).json()
+    assert batches == [2, 1]
+    assert [row["id"] for row in response["results"]] == ["a", "b", "c"]
+    assert [row["latex"] for row in response["results"]] == ["x", "", "x"]
+    assert response["results"][1]["error"] == "token limit reached"
+
+
+def test_cuda_oom_splits_batch_without_losing_image_results(client, monkeypatch):
+    class OutOfMemoryError(RuntimeError):
+        pass
+
+    sizes, releases = [], []
+
+    def infer(images):
+        sizes.append(len(images))
+        if len(images) > 1:
+            raise OutOfMemoryError("not enough GPU memory")
+        return [{"latex": "recovered"}]
+
+    monkeypatch.setattr(server, "_inference_batch_size", 2)
+    monkeypatch.setattr(server, "_infer_transformers_batch", infer)
+    monkeypatch.setattr(server, "_clear_cuda_cache", lambda: releases.append(True))
+    response = client.post("/ocr/batch", data={"ids": '["a","b"]'},
+                           files=[("files", ("a.png", png())), ("files", ("b.png", png(5)))]).json()
+    assert sizes == [2, 1, 1] and len(releases) == 1
+    assert [row["latex"] for row in response["results"]] == ["recovered", "recovered"]
+
+
+@pytest.mark.parametrize("matches,faster", [(True, True), (False, True), (True, False)])
+def test_batch_startup_validation_falls_back_when_outputs_differ(client, monkeypatch, matches, faster):
+    monkeypatch.setattr(server, "_inference_batch_size", 2)
+    monkeypatch.setattr(server, "_batch_verified", False)
+    monkeypatch.setattr(server, "_batch_validation_error", "")
+    ticks = iter([0.0, 2.0, 2.0, 3.0 if faster else 5.0])
+    monkeypatch.setattr(server, "perf_counter", lambda: next(ticks))
+    monkeypatch.setattr(server, "_infer_transformers", lambda _: "x")
+    monkeypatch.setattr(server, "_infer_transformers_batch", lambda images:
+                        [{"latex": "x" if matches else "different"} for _ in images])
+    server.validate_transformers_batch()
+    verified = matches and faster
+    assert server._inference_batch_size == (2 if verified else 1)
+    assert server._batch_verified is verified
+    assert bool(server._batch_validation_error) is not verified
 
 
 def test_vllm_truncated_output_is_not_accepted_or_cached(client,monkeypatch):

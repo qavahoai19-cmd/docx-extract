@@ -17,6 +17,7 @@ import tempfile
 import threading
 from time import perf_counter
 from collections import OrderedDict
+from contextlib import nullcontext
 
 from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
@@ -32,6 +33,7 @@ app = FastAPI(title="docx-extract mathtype OCR server")
 # chạy song song nhiều request trên cùng 1 GPU dễ tranh chấp bộ nhớ/crash.
 # Khóa để đảm bảo tại một thời điểm chỉ có 1 lần suy luận GPU chạy.
 _gpu_lock = threading.Lock()
+_cache_lock = threading.Lock()
 
 _MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
 _model = None
@@ -40,6 +42,10 @@ _model_dtype = None
 _warmed_up = False
 _resolved_revision = os.getenv("DOCX_OCR_MODEL_REVISION", "main")
 _backend = os.getenv("DOCX_OCR_BACKEND", "transformers")
+_inference_batch_size = max(1, min(8, int(os.getenv("DOCX_OCR_INFERENCE_BATCH_SIZE", "1"))))
+_batch_verified = False
+_batch_validation_error = ""
+_batch_validation_timings = {}
 _image_size = int(os.getenv("DOCX_OCR_IMAGE_SIZE", "1024"))
 if _image_size not in {768, 1024}:
     raise ValueError("DOCX_OCR_IMAGE_SIZE must be 768 or 1024")
@@ -104,6 +110,8 @@ def _preload_model_on_startup() -> None:
     tưởng server đã sẵn sàng.
     """
     _get_model()
+    if _backend == "transformers" and _inference_batch_size > 1:
+        validate_transformers_batch()
     if os.getenv("DOCX_OCR_WARMUP", "0") == "1":
         warmup_model()
 
@@ -150,7 +158,8 @@ def _infer_transformers(png_bytes: bytes) -> str:
 def _namespace():
     settings = [_MODEL_NAME, _resolved_revision, _backend, _image_size, _prompt,
                 "crop-v2", str(_model_dtype), os.getenv("DOCX_OCR_ATTENTION", "eager"),
-                os.getenv("DOCX_OCR_MAX_TOKENS", "1024")]
+                os.getenv("DOCX_OCR_MAX_TOKENS", "1024"), _inference_batch_size,
+                os.getenv("DOCX_OCR_BATCH_MAX_TOKENS", "8192")]
     return hashlib.sha256(json.dumps(settings).encode()).hexdigest()
 
 
@@ -197,21 +206,118 @@ def _infer_vllm(pngs):
             for output in outputs]
 
 
+def _infer_transformers_batch(pngs):
+    from transformers_batch import infer_batch
+    tokenizer, model = _get_model()
+    return infer_batch(model, tokenizer, pngs, prompt=_prompt, image_size=_image_size,
+                       dtype=_model_dtype, max_new_tokens=int(os.getenv("DOCX_OCR_BATCH_MAX_TOKENS", "8192")))
+
+
+def _clear_cuda_cache():
+    import torch
+    torch.cuda.empty_cache()
+
+
+def _infer_bounded_batch(images):
+    try:
+        results = _infer_transformers_batch(images)
+        if len(results) != len(images):
+            raise ValueError("Model returned a different batch length")
+        return results
+    except Exception as exc:
+        oom = type(exc).__name__ == "OutOfMemoryError"
+        error = str(exc)
+    # Leave the exception scope before releasing CUDA allocations and retrying.
+    if oom and len(images) > 1:
+        _clear_cuda_cache()
+        middle = len(images) // 2
+        return _infer_bounded_batch(images[:middle]) + _infer_bounded_batch(images[middle:])
+    return [{"latex": "", "error": error} for _ in images]
+
+
+def validate_transformers_batch():
+    """Use a batch only after checking full outputs against serial inference."""
+    global _inference_batch_size, _batch_verified, _batch_validation_error, _batch_validation_timings
+    _batch_verified, _batch_validation_error = False, ""
+    _batch_validation_timings = {}
+    try:
+        samples = []
+        for index in range(_inference_batch_size):
+            image = Image.new("RGB", (300, 100), "white")
+            ImageDraw.Draw(image).text((20, 25), f"x + {index + 1}", fill="black", font_size=36)
+            buffer = io.BytesIO()
+            image.save(buffer, "PNG")
+            samples.append(buffer.getvalue())
+        _infer_transformers(samples[0])  # Exclude first-use kernels from timing.
+        serial_started = perf_counter()
+        expected = [_infer_transformers(image) for image in samples]
+        serial_s = perf_counter() - serial_started
+        batch_started = perf_counter()
+        actual = _infer_transformers_batch(samples)
+        batch_s = perf_counter() - batch_started
+        _batch_validation_timings = {"serial_s": serial_s, "batch_s": batch_s}
+        if (len(actual) != len(expected) or not all(expected)
+                or any(result.get("error") or result.get("latex") != baseline
+                       for result, baseline in zip(actual, expected))):
+            raise ValueError("Batch output does not match complete serial output")
+        if batch_s >= serial_s:
+            raise ValueError("Batch output matches, but this startup check was not faster")
+        _batch_verified = True
+    except Exception as exc:
+        _batch_validation_error = str(exc)
+        _inference_batch_size = 1
+
+
+def _cache_get(key, enabled):
+    if not enabled:
+        return None
+    with _cache_lock:
+        value = _result_cache.get(key)
+        if value:
+            _result_cache.move_to_end(key)
+        return value
+
+
+def _cache_put(key, latex, enabled):
+    if enabled and latex:
+        with _cache_lock:
+            _result_cache[key] = latex
+            _result_cache.move_to_end(key)
+            while len(_result_cache) > _cache_limit:
+                _result_cache.popitem(last=False)
+
+
 def recognize_items(items, use_cache=True):
     started = perf_counter()
-    prepared, errors = _prepare_images(items)
+    source_groups, results, pending, source_keys = {}, {}, [], {}
+    for oid, data, ext in items:
+        key = ("source", ext.lower(), hashlib.sha256(data).digest())
+        source_groups.setdefault(key, []).append((oid, data, ext))
+    for key, group in source_groups.items():
+        cached = _cache_get(key, use_cache)
+        if cached:
+            results.update({oid: {"id": oid, "latex": cached} for oid, _, _ in group})
+        else:
+            pending.append(group[0])
+            source_keys[group[0][0]] = key
+    # Cache hits and exact duplicates never enter LibreOffice/crop again.
+    prepared, errors = _prepare_images(pending) if pending else ({}, {})
+    for oid, error in errors.items():
+        for original_id, _, _ in source_groups[source_keys[oid]]:
+            results[original_id] = {"id": original_id, "latex": "", "error": error}
     prepare_s = perf_counter() - started
     queue_start = perf_counter()
-    results = {oid: {"id": oid, "latex": "", "error": error} for oid, error in errors.items()}
-    with _gpu_lock:
+    with _gpu_lock if prepared else nullcontext():
         queue_s = perf_counter() - queue_start
         inference_start = perf_counter()
         groups = {}
         for oid, png in prepared.items():
-            key = hashlib.sha256(png).hexdigest()
-            if use_cache and key in _result_cache:
-                _result_cache.move_to_end(key)
-                results[oid] = {"id": oid, "latex": _result_cache[key]}
+            key = ("png", hashlib.sha256(png).digest())
+            cached = _cache_get(key, use_cache)
+            if cached:
+                _cache_put(source_keys[oid], cached, use_cache)
+                for original_id, _, _ in source_groups[source_keys[oid]]:
+                    results[original_id] = {"id": original_id, "latex": cached}
             else:
                 groups.setdefault(key, []).append((oid, png))
         missing = list(groups.items())
@@ -222,20 +328,24 @@ def recognize_items(items, use_cache=True):
                 inferred = [{"latex": "", "error": str(exc)} for _ in missing]
         else:
             inferred = []
-            for _, group in missing:
+            for offset in range(0, len(missing), _inference_batch_size):
+                chunk = missing[offset:offset + _inference_batch_size]
                 try:
-                    inferred.append({"latex": _infer_transformers(group[0][1])})
+                    if _inference_batch_size > 1:
+                        batch_results = _infer_bounded_batch([group[0][1] for _, group in chunk])
+                        inferred.extend(batch_results)
+                    else:
+                        inferred.append({"latex": _infer_transformers(chunk[0][1][0][1])})
                 except Exception as exc:
-                    inferred.append({"latex": "", "error": str(exc)})
+                    inferred.extend({"latex": "", "error": str(exc)} for _ in chunk)
         for (key, group), result in zip(missing, inferred):
             if result.get("error"):
                 result["latex"] = ""
-            if use_cache and result["latex"]:
-                _result_cache[key] = result["latex"]
-                while len(_result_cache) > _cache_limit:
-                    _result_cache.popitem(last=False)
+            _cache_put(key, result["latex"], use_cache)
             for oid, _ in group:
-                results[oid] = {"id": oid, **result}
+                _cache_put(source_keys[oid], result["latex"], use_cache)
+                for original_id, _, _ in source_groups[source_keys[oid]]:
+                    results[original_id] = {"id": original_id, **result}
         infer_s = perf_counter() - inference_start
     return {"results": [results[oid] for oid, _, _ in items],
             "timings": {"prepare_s": prepare_s, "queue_s": queue_s,
@@ -274,6 +384,10 @@ def health():
     return {"status": "ok", "model_loaded": _model is not None,
             "warmed_up": _warmed_up, "dtype": str(_model_dtype),
             "batch": True, "max_batch_size": 32, "backend": _backend,
+            "inference_batch_size": _inference_batch_size,
+            "batch_verified": _batch_verified,
+            "batch_validation_error": _batch_validation_error,
+            "batch_validation_timings": _batch_validation_timings,
             "cache_bypass_header": "X-OCR-Cache",
             "cache_namespace": _namespace()}
 

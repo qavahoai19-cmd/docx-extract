@@ -43,14 +43,14 @@ OCR cần server riêng; GPU dành cho model trên server. Client bóc Word và 
 - [Kết quả benchmark GPU đã đo](./docs/ocr-benchmark-2026-11-16.md).
 - [Công cụ tạo trang xem offline](./scripts/build_preview.py) và [mẫu giao diện](./scripts/preview-template.html).
 
-Luồng OCR hiện tại chưa được xác nhận đạt 20 đề/phút. Backend mặc định suy luận từng ảnh; số đo trích xuất giữ ảnh không được dùng làm số đo OCR.
+Luồng OCR hiện tại chưa được xác nhận đạt 20 đề/phút. Server mặc định suy luận từng ảnh; notebook mới thử batch 4 và chỉ dùng khi kiểm tra khởi động khớp kết quả, nhanh hơn. UI gom ảnh cần OCR giữa nhiều đề và khử trùng trước khi gửi. Xem [bản tối ưu OCR hiện tại](./docs/ocr-optimization-2026-11-17.md); số đo giữ ảnh không được dùng làm số đo OCR.
 
 Các thư mục kết quả, cache, môi trường Python và thông tin xác thực được bỏ qua bởi Git. Fixture trong bộ kiểm thử và notebook tự chứa vẫn được lưu cùng mã nguồn.
 
 ## Kiểm thử
 
 ```powershell
-python -m pip install pytest Pillow fastapi httpx python-multipart
+python -m pip install pytest Pillow fastapi httpx python-multipart numpy
 python -m pytest -q tests colab_ocr_server/test_ocr_logic.py
 ```
 

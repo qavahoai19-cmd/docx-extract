@@ -32,10 +32,11 @@ def _paragraph_text(p) -> str:
 _ANCHOR_RE = re.compile(r"^(PHẦN|Nhóm|Câu)\b")
 
 
-def clean_docx(path: str, *, ocr_client=None):
+def extract_docx(path: str, *, native_math=None):
+    """Extract content and collect OCR jobs without contacting a model."""
     started = perf_counter()
     doc = load(path)
-    ctx = Context(rels=doc.rels, assets=doc.assets, defer_ocr=True)
+    ctx = Context(rels=doc.rels, assets=doc.assets, defer_ocr=True, native_math=native_math)
     all_lines = []
     anchor_idx = None
     for child in iter_blocks(doc.body):
@@ -57,6 +58,14 @@ def clean_docx(path: str, *, ocr_client=None):
         lines = all_lines[anchor_idx:]
     markup = "\n".join(lines)
     parse_seconds = perf_counter() - started
+    ctx.ocr_stats["parse_s"] = parse_seconds
+    return markup, ctx
+
+
+def clean_docx(path: str, *, ocr_client=None):
+    started = perf_counter()
+    markup, ctx = extract_docx(path)
+    parse_seconds = ctx.ocr_stats["parse_s"]
     ctx.resolve_ocr(ocr_client)
     ctx.ocr_stats["parse_s"] = parse_seconds
     ctx.ocr_stats["document_s"] = perf_counter() - started

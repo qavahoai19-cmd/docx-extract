@@ -11,7 +11,11 @@ GPU chỉ cần cho phần DeepSeek-OCR-2 trong cấu hình hiện tại. Bóc D
 3. Bấm **Đọc đề**. Chờ thanh tiến độ và thông báo hoàn tất.
 4. Bấm **Tải kết quả ZIP**. Mỗi đề có một thư mục riêng gồm `markup.txt`, `manifest.json`, `sidecar/`; `summary.json` ghi thời gian, cache và lỗi từng đề.
 
-Ngay dưới nút **Đọc đề** có thời gian từng file và dòng **Tổng thời gian xử lý (đọc Word + OCR + tạo ZIP)**. Tổng này gồm xử lý ở kernel và chuẩn bị ZIP; không gồm tải file từ máy lên hoặc tải/khởi động model. Mốc 6–7 giây với OCR thật hiện **chưa đạt/chưa được xác nhận**; số đo DeepSeek gần nhất của đề 130 công thức vẫn là 149,014 giây.
+Ngay dưới nút **Đọc đề** có kết quả từng file, số ảnh/request OCR chung của lô và dòng **Tổng thời gian xử lý (đọc Word + OCR + tạo ZIP)**. Tổng này gồm xử lý ở kernel và chuẩn bị ZIP; không gồm tải file từ máy lên hoặc tải/khởi động model. Mốc 6–7 giây với OCR thật và mục tiêu 20 đề/phút hiện **chưa được xác nhận**; số đo GPU DeepSeek gần nhất của đề 130 công thức vẫn là 149,014 giây.
+
+Bản mới gom ảnh của cả lô trước khi OCR, nên loại ảnh trùng giữa các đề ngay cả khi tắt cache. `batch-metrics.json` trong ZIP ghi số ảnh khác nhau, lượt cache, request và thời gian OCR của cả lô. Số liệu mỗi đề có `timing_scope=shared_batch`, không cộng số giây OCR chung nhiều lần. Bản upload luôn tắt đọc MathType native để giữ phép đo OCR thật.
+
+Cell cấu hình có `OCR_GPU_BATCH_SIZE=4`. Server thử encoder/decoder theo lô với cùng model, so đầu ra và thời gian với serial trước khi phục vụ đề. Chỉ giữ chế độ batch khi phép kiểm tra thành công và nhanh hơn; nếu không sẽ dùng lại batch size 1. Xem các trường `batch_verified`, `inference_batch_size`, `batch_validation_timings` trong dòng **Model ready**. Phải đo tiếp trên đề thật trước khi kết luận đạt mục tiêu thời gian.
 
 Đề tiếp theo dùng lại ô này; không cần sửa đường dẫn, tạo Dataset hoặc Run All lại. Cache công thức dùng chung giữa các lượt trong phiên. File ZIP kết quả cũng được ghi ở Output. Nếu session đã tắt/khởi động lại, chạy Run All trước. Mặc định **không chạy benchmark**, không xuất lại đề mẫu. File `.doc` hoặc `.rar` cần chuyển sang DOCX/ZIP trước.
 
@@ -34,7 +38,7 @@ Notebook trên tài khoản `quanganh2005`: [DOCX OCR Kaggle GPU](https://www.ka
 
 Notebook kiểm tra CUDA trước khi tải model, giữ nguyên Torch/Torchvision đi kèm Kaggle, chọn FP16 cho T4/P100 và BF16 cho GPU có hỗ trợ native. Code model chính thức cố định BF16 ở bước chuẩn bị ảnh/autocast; adapter chỉ thay dtype trong phương thức `infer` của instance đang chạy, không sửa Torch toàn cục hoặc file model dùng chung. Phiên bản model được khóa ở revision `aaa02f3811945a91062062994c5c4a3f4c0af2b0`.
 
-P100 cần CUDA wheel còn hỗ trợ kiến trúc sm_60. T4/L4 là lựa chọn ưu tiên khi có. Không cài vLLM mặc định cho bản chạy thử này; backend Transformers giữ khóa GPU, HTTP vẫn gửi theo lô.
+P100 cần CUDA wheel còn hỗ trợ kiến trúc sm_60. T4/L4 là lựa chọn ưu tiên khi có. Không cài vLLM mặc định; backend Transformers giữ khóa GPU và chỉ bật suy luận batch sau kiểm tra khởi động.
 
 ## Nối với chương trình trên máy
 

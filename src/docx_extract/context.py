@@ -23,6 +23,7 @@ class Context:
     pending_ocr: list = field(default_factory=list)
     ocr_stats: dict = field(default_factory=dict)
     native_stats: dict = field(default_factory=lambda: dict(native_attempted=0, native_success=0, native_fallback=0, native_s=0.0))
+    native_math: bool | None = None
 
     def _finish_stats(self):
         defaults = dict(http_requests=0, cache_hits=0, remote_images=0, total_s=0.0,
@@ -36,7 +37,8 @@ class Context:
         self.ocr_stats = defaults
 
     def _native_mathtype(self, ole_obj, entry):
-        if self.ocr_fn is not None or os.getenv("DOCX_EXTRACT_NATIVE_MATH", "0").lower() in {"off", "0", "false"}:
+        enabled = self.native_math if self.native_math is not None else os.getenv("DOCX_EXTRACT_NATIVE_MATH", "0").lower() not in {"off", "0", "false"}
+        if self.ocr_fn is not None or not enabled:
             return False
         started = perf_counter()
         self.native_stats["native_attempted"] += 1
@@ -61,7 +63,7 @@ class Context:
         if not self.pending_ocr:
             self._finish_stats()
             return
-        jobs, self.pending_ocr = self.pending_ocr, []
+        jobs = self.pending_ocr
         try:
             if client is None:
                 with mathocr.OCRClient() as owned:
@@ -72,8 +74,12 @@ class Context:
                 self.ocr_stats = dict(client.stats)
         except Exception as exc:
             results = {oid: {"latex": None, "error": f"OCR thất bại: {exc}"} for oid, _, _, _ in jobs}
+        self.apply_ocr_results(results)
+
+    def apply_ocr_results(self, results):
+        jobs, self.pending_ocr = self.pending_ocr, []
         for oid, _, _, entry in jobs:
-            result = results[oid]
+            result = results.get(oid, {"latex": None, "error": "OCR batch thiếu id"})
             entry["latex"] = result["latex"]
             if result["latex"]:
                 self.latex[oid] = result["latex"]
