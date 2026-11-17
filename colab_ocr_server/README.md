@@ -72,31 +72,14 @@ print(f"{elapsed/N:.2f} giây/công thức -> ~{N/elapsed*60:.0f} công thức/p
 
 ---
 
-## Tính toán: Colab free T4 xử lý tối ưu bao nhiêu file 1 lần?
+## 4. Phiên bản tối ưu: batch, cache và đo từng công đoạn
 
-**Câu trả lời ngắn: KHÔNG bị giới hạn bởi VRAM/batch — VRAM dư dả cho khối lượng
-công thức toán (ảnh nhỏ, đã crop sẵn). Giới hạn thực sự là thời lượng phiên
-Colab free (session/idle timeout), không phải "bao nhiêu file 1 lần".**
+Cập nhật cả [ocr_server.py](./ocr_server.py) và [ocr_logic.py](./ocr_logic.py) trên Colab, rồi khởi động lại Uvicorn. Bản mới giữ `/ocr`, thêm `/ocr/batch` nhận tối đa 32 ảnh cùng danh sách ID. Kết quả theo ID, lỗi riêng từng ảnh, kèm thời gian chuẩn bị/chờ GPU/suy luận.
 
-**Cơ sở tính:**
+Client mới mặc định gom 8 ảnh/request, dùng lại HTTP Session, loại ảnh trùng và cache SQLite các kết quả thành công. Trên Windows, client chuyển WMF/EMF bằng GDI+ trước khi gửi để giảm số lần gọi LibreOffice phía server. Phần fallback LibreOffice cũng chuyển cả nhóm ảnh trong một lần chạy. `/health` trả fingerprint để cache tự thay đổi theo model và cấu hình.
 
-| Yếu tố | Giá trị |
-|---|---|
-| VRAM T4 free tier | 16GB (không đảm bảo cấp, có thể bị chia sẻ/preempt) |
-| Model DeepSeek-OCR-2 | ~3–3.4B tham số, bf16 ≈ 7GB VRAM cố định |
-| VRAM còn lại cho suy luận | ~8–9GB |
-| Vision token/ảnh (không tile, `crop_mode=False`) | 256 token cố định (ảnh công thức đã crop sẵn, KHÔNG phải trang tài liệu đầy đủ — không cần chế độ tile 0-6×768 làm tốn thêm token) |
-| Output/công thức | thường 10–100 token LaTeX (rất ngắn so với 1 trang) |
-| Tổng ngữ cảnh/request | ~300–400 token — nhẹ hơn nhiều so với benchmark OCR cả trang (800–1200+ token) |
+Backend mặc định `transformers` vẫn suy luận từng ảnh. Đặt `DOCX_OCR_BACKEND=vllm` trong môi trường GPU/CUDA/vLLM tương thích để dùng GPU batch thật. Tùy chọn này cần được đo trên phần cứng thực tế; không suy ra VRAM hoặc tốc độ chỉ từ kích thước file ảnh. Không thay đổi mặc định chất lượng ảnh 1024.
 
-→ Với ngữ cảnh nhỏ như vậy, **1 công thức tốn rất ít VRAM** (ước tính dưới 1GB/request kể cả có dư), nên **không có rủi ro OOM dù xử lý hàng trăm/nghìn công thức tuần tự trong 1 phiên** — miễn server xử lý **tuần tự từng ảnh một** (đã khóa bằng `_gpu_lock` trong `ocr_server.py`, vì `model.infer()` không phải batch API, chạy song song nhiều request cùng lúc trên 1 GPU dễ tranh chấp bộ nhớ).
+**Cell lặp lại cùng một ảnh ở mục 3 sẽ dùng cache sau lần đầu.** Để đo thông lượng OCR, sử dụng các công thức khác nhau và phép đo trước/sau toàn bộ đề.
 
-**Vậy giới hạn thực tế nằm ở đâu?**
-1. **Tốc độ tuần tự:** ước tính (chưa đo thật trên workload của bạn — dùng cell benchmark ở trên để có số chính xác) khoảng **1–3 giây/công thức** trên T4 cho ảnh nhỏ + output ngắn kiểu này. Với 16 công thức MathType/đề thi → **~20–50 giây/đề thi**.
-2. **Thời lượng phiên Colab free:** tối đa 12 giờ, nhưng thực tế hay bị ngắt sau ~90 phút không tương tác, và GPU T4 không đảm bảo luôn cấp được (tùy demand). Đây mới là giới hạn số lượng file xử lý được trong "1 lần" — không phải VRAM.
-3. Với tốc độ ước tính trên, **1 phiên Colab free (dùng hết ~1-2 tiếng thực tế trước khi có nguy cơ bị ngắt) có thể xử lý khoảng vài nghìn công thức, tức hàng trăm file đề thi (16 công thức/file)** — thừa sức cho nhu cầu OCR MathType của một bộ đề thi.
-
-**Khuyến nghị thực dụng:**
-- Không cần thiết kế giới hạn "N file/lần" ở phía client `docx-extract` — cứ để `mathocr.image_to_latex()` gọi tuần tự cho từng `mathtype_N`, endpoint sẽ tự xử lý tuần tự an toàn.
-- Chạy cell benchmark ở trên với vài chục ảnh công thức thật của bạn để biết số giây/công thức chính xác, từ đó ước lượng cả bộ đề thi xử lý hết bao lâu trước khi phiên Colab bị ngắt (nên giữ notebook active — click/tương tác định kỳ, hoặc dùng Colab Pro để tránh preemption khi cần xử lý lô lớn).
-- Nếu sau này khối lượng thật sự lớn (hàng chục nghìn công thức/lần) và muốn tăng thông lượng thật (xử lý nhiều request song song), cần chuyển sang serving bằng vLLM (batch/continuous batching) — phức tạp hơn nhiều so với script Colab đơn giản này, không cần thiết cho quy mô hiện tại.
+Xem [hướng dẫn chạy và benchmark](../docs/ocr-performance.md) để đo bản cũ, bản mới chưa cache và bản mới có cache. Số đo mock chỉ kiểm tra client/HTTP, không phải benchmark GPU.

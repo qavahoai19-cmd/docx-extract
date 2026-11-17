@@ -129,3 +129,33 @@ def test_omml_populates_latex_map():
     assert c.omml(m) == "[!m:$mathml_1$]"
     assert c.latex["mathml_1"] == r"\frac{a}{b}"
     assert c.manifest[-1]["latex"] == r"\frac{a}{b}"
+
+
+def test_deferred_ocr_preserves_ids_and_updates_existing_manifest_entries():
+    c = Context(rels={"rId5": "word/media/formula.wmf"},
+                assets={"word/media/formula.wmf": b"WMF"}, defer_ocr=True)
+    assert c.ole(_w_object("Equation.DSMT4")) == "[!m:$mathtype_1$]"
+    c.counter += 1  # an unrelated image owns id 2
+    assert c.ole(_w_object("Equation.3")) == "[!m:$mathtype_3$]"
+    entries = list(c.manifest)
+    assert not c.latex
+    class Client:
+        stats = {"total": 2}
+        def recognize(self, jobs):
+            assert [item[0] for item in jobs] == ["mathtype_1", "mathtype_3"]
+            return {oid: {"latex": oid, "error": ""} for oid, _, _ in reversed(jobs)}
+    c.resolve_ocr(Client())
+    assert [entry["latex"] for entry in entries] == ["mathtype_1", "mathtype_3"]
+    assert c.counter == 3 and not c.pending_ocr and not c.warnings
+
+
+def test_deferred_ocr_unexpected_error_keeps_asset_and_warns():
+    c=Context(rels={"rId5":"word/media/a.wmf"},assets={"word/media/a.wmf":b"WMF"},defer_ocr=True)
+    c.ole(_w_object("Equation.DSMT4"))
+    class BrokenClient:
+        def recognize(self, jobs):
+            raise RuntimeError("unexpected failure")
+    c.resolve_ocr(BrokenClient())
+    assert c.written["mathtype_1.wmf"]==b"WMF"
+    assert c.manifest[0]["latex"] is None
+    assert "unexpected failure" in c.warnings[0]

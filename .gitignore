@@ -4,3 +4,15 @@ __pycache__/
 out/
 
 out_test/
+
+# Local environments, generated exam results and credentials.
+/.venv/
+/.venv-*/
+/out_*/
+.env
+.env.*
+!.env.example
+.kaggle/
+*.sqlite
+*.sqlite3
+*.log

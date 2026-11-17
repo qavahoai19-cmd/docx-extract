@@ -1,4 +1,5 @@
 import requests as requests_module  # để raise đúng loại exception mathocr bắt
+import pytest
 from docx_extract import mathocr
 
 
@@ -6,6 +7,7 @@ class _FakeResponse:
     def __init__(self, json_data, status_ok=True):
         self._json = json_data
         self._status_ok = status_ok
+        self.status_code = 200 if status_ok else 500
 
     def raise_for_status(self):
         if not self._status_ok:
@@ -15,9 +17,139 @@ class _FakeResponse:
         return self._json
 
 
+@pytest.fixture(autouse=True)
+def isolated_transport(monkeypatch):
+    class Session:
+        def get(self, *args, **kwargs):
+            return _FakeResponse({}, False)
+
+        def post(self, url, **kwargs):
+            return mathocr.requests.post(url, **kwargs)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(mathocr.requests, "Session", Session)
+    monkeypatch.setenv("DOCX_EXTRACT_OCR_CACHE", "off")
+    monkeypatch.setenv("DOCX_EXTRACT_OCR_PREPARE_IMAGES", "0")
+
+
 def test_image_to_latex_returns_none_when_endpoint_not_configured(monkeypatch):
     monkeypatch.delenv("DOCX_EXTRACT_OCR_ENDPOINT", raising=False)
     assert mathocr.image_to_latex(b"WMFDATA", "wmf") is None
+
+
+class BatchSession:
+    def __init__(self, *, namespace="model-1", failed=False, legacy=False):
+        self.namespace, self.failed, self.legacy = namespace, failed, legacy
+        self.posts = []
+
+    def get(self, *args, **kwargs):
+        return _FakeResponse({"cache_namespace": self.namespace})
+
+    def post(self, url, **kwargs):
+        import json
+        self.posts.append((url, kwargs))
+        if url.endswith("/batch"):
+            if self.legacy:
+                response = _FakeResponse({}, False)
+                response.status_code = 404
+                return response
+            ids = json.loads(kwargs["data"]["ids"])
+            # Deliberately reverse results: positional matching corrupts math.
+            return _FakeResponse({"results": [{"id": oid, "latex": "" if self.failed else f"latex:{oid}"} for oid in reversed(ids)]})
+        return _FakeResponse({"latex": "" if self.failed else "x^2"})
+
+    def close(self):
+        pass
+
+
+def test_batch_deduplicates_and_maps_out_of_order_results():
+    session = BatchSession()
+    with mathocr.OCRClient(endpoint="http://test/ocr", session=session, prepare=False) as client:
+        result = client.recognize([("m1", b"one", "wmf"), ("m2", b"two", "wmf"), ("m3", b"one", "wmf")])
+    assert result["m1"]["latex"] == result["m3"]["latex"] == "latex:m1"
+    assert result["m2"]["latex"] == "latex:m2"
+    assert len(session.posts) == 1
+    assert len(session.posts[0][1]["files"]) == 2
+    assert client.stats["deduplicated"] == 1
+
+
+def test_persistent_cache_reuses_success_and_invalidates_model_revision(tmp_path):
+    cache = tmp_path / "cache.sqlite3"
+    jobs = [("m1", b"one", "png"), ("m2", b"two", "png")]
+    for namespace, expected_requests in [("v1", 1), ("v1", 0), ("v2", 1)]:
+        session = BatchSession(namespace=namespace)
+        with mathocr.OCRClient(endpoint="http://test/ocr", cache_path=cache, session=session) as client:
+            result = client.recognize(jobs)
+        assert all(item["latex"] for item in result.values())
+        assert len(session.posts) == expected_requests
+
+
+def test_failures_are_not_persisted(tmp_path):
+    cache = tmp_path / "cache.sqlite3"
+    for failed in (True, False):
+        session = BatchSession(failed=failed)
+        with mathocr.OCRClient(endpoint="http://test/ocr", cache_path=cache, session=session) as client:
+            result = client.recognize([("m1", b"one", "png"), ("m2", b"two", "png")])
+        assert len(session.posts) == 1
+        assert bool(result["m1"]["latex"]) is not failed
+
+
+def test_legacy_server_falls_back_once_then_reuses_session():
+    session = BatchSession(legacy=True)
+    with mathocr.OCRClient(endpoint="http://test/ocr", session=session, batch_size=2) as client:
+        result = client.recognize([(str(i), str(i).encode(), "png") for i in range(4)])
+    assert len(session.posts) == 5  # one 404, four compatible single uploads
+    assert all(item["latex"] == "x^2" for item in result.values())
+
+
+def test_transport_failure_stops_remaining_timeouts():
+    session = BatchSession()
+    def fail(*args, **kwargs):
+        session.posts.append(None)
+        raise requests_module.Timeout("offline")
+    session.post = fail
+    with mathocr.OCRClient(endpoint="http://test/ocr", session=session, batch_size=2) as client:
+        result = client.recognize([(str(i), str(i).encode(), "png") for i in range(20)])
+    assert len(result) == 20
+    assert len(session.posts) == 1
+    assert client.stats["failures"] == 20
+
+
+def test_legacy_partial_success_survives_a_later_timeout():
+    session=BatchSession(legacy=True)
+    session.get=lambda *args,**kwargs: _FakeResponse({"batch":False})
+    calls=[]
+    def post(url,**kwargs):
+        calls.append(url)
+        if len(calls)==1:
+            return _FakeResponse({"latex":"first result"})
+        raise requests_module.Timeout("offline")
+    session.post=post
+    with mathocr.OCRClient(endpoint="http://test/ocr",session=session,batch_size=3) as client:
+        result=client.recognize([(str(i),str(i).encode(),"png") for i in range(5)])
+    assert len(calls)==2
+    assert result["0"]["latex"]=="first result"
+    assert all(not result[str(i)]["latex"] for i in range(1,5))
+
+
+def test_missing_batch_id_cannot_be_assigned_another_formula():
+    session=BatchSession()
+    session.post=lambda *args,**kwargs:_FakeResponse({"results":[{"id":"b","latex":"only b"}]})
+    with mathocr.OCRClient(endpoint="http://test/ocr",session=session) as client:
+        result=client.recognize([("a",b"a","png"),("b",b"b","png")])
+    assert result["a"]["latex"] is None
+    assert result["b"]["latex"]=="only b"
+
+
+def test_corrupt_cache_does_not_stop_ocr(tmp_path):
+    cache = tmp_path / "cache.sqlite3"
+    cache.write_bytes(b"broken sqlite")
+    with mathocr.OCRClient(endpoint="http://test/ocr", cache_path=cache, session=BatchSession()) as client:
+        result = client.recognize([("m1", b"one", "png")])
+    assert result["m1"]["latex"] == "x^2"
+    assert client.stats["cache_errors"] == 1
 
 
 def test_image_to_latex_posts_file_and_returns_latex(monkeypatch):

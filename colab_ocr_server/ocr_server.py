@@ -7,16 +7,24 @@ LaTeX bằng DeepSeek-OCR-2. Khớp đúng contract của docx_extract.mathocr.
 Cách chạy trong Colab — xem README.md để có đầy đủ các cell.
 """
 import io
+import hashlib
+import hmac
+import json
 import os
+from pathlib import Path
 import subprocess
 import tempfile
 import threading
+from time import perf_counter
+from collections import OrderedDict
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import JSONResponse, Response
-from PIL import Image
+from starlette.concurrency import run_in_threadpool
+from PIL import Image, ImageDraw
 
-from ocr_logic import build_soffice_cmd, ext_of, needs_conversion
+from ocr_logic import (adapt_infer_dtype, build_soffice_batch_cmd, crop_whitespace,
+                       ext_of, needs_conversion, select_model_dtype)
 
 app = FastAPI(title="docx-extract mathtype OCR server")
 
@@ -28,6 +36,16 @@ _gpu_lock = threading.Lock()
 _MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
 _model = None
 _tokenizer = None
+_model_dtype = None
+_warmed_up = False
+_resolved_revision = os.getenv("DOCX_OCR_MODEL_REVISION", "main")
+_backend = os.getenv("DOCX_OCR_BACKEND", "transformers")
+_image_size = int(os.getenv("DOCX_OCR_IMAGE_SIZE", "1024"))
+if _image_size not in {768, 1024}:
+    raise ValueError("DOCX_OCR_IMAGE_SIZE must be 768 or 1024")
+_prompt = "<image>\nOCR this formula to LaTeX."
+_result_cache = OrderedDict()
+_cache_limit = 2048
 
 # Neu bien moi truong HF_HOME duoc dat truoc khi uvicorn start (vd tro vao
 # Google Drive da mount), transformers se cache trong so model vao do -> lan
@@ -37,12 +55,25 @@ _tokenizer = None
 
 def _get_model():
     """Lazy-singleton load model — chỉ tải/khởi tạo một lần cho cả process."""
-    global _model, _tokenizer
+    global _model, _tokenizer, _resolved_revision, _model_dtype
     if _model is None:
+        if _backend == "vllm":
+            from vllm import LLM
+            from vllm.model_executor.models.deepseek_ocr import NGramPerReqLogitsProcessor
+            _model = LLM(model=_MODEL_NAME, revision=_resolved_revision,
+                         enable_prefix_caching=False, mm_processor_cache_gb=0,
+                         logits_processors=[NGramPerReqLogitsProcessor],
+                         max_model_len=8192, gpu_memory_utilization=0.85)
+            config = _model.llm_engine.model_config.hf_config
+            _resolved_revision = getattr(config, "_commit_hash", None) or _resolved_revision
+            return None, _model
+        if _backend != "transformers":
+            raise ValueError("DOCX_OCR_BACKEND must be transformers or vllm")
         import torch
         from transformers import AutoModel, AutoTokenizer
 
-        _tokenizer = AutoTokenizer.from_pretrained(_MODEL_NAME, trust_remote_code=True)
+        _model_dtype = select_model_dtype(torch, os.getenv("DOCX_OCR_DTYPE", "auto"))
+        _tokenizer = AutoTokenizer.from_pretrained(_MODEL_NAME, revision=_resolved_revision, trust_remote_code=True)
         # dtype=bfloat16 + low_cpu_mem_usage=True: nap thang trong so bf16, tranh
         # buoc trung gian nap fp32 vao RAM CPU truoc (~13-14GB, de gay OOM-kill tren
         # RAM CPU free-tier Colab ~12GB, khac voi VRAM GPU).
@@ -51,12 +82,16 @@ def _get_model():
         # __init__, dtype se bao TypeError: unexpected keyword argument 'dtype'.
         m = AutoModel.from_pretrained(
             _MODEL_NAME,
+            revision=_resolved_revision,
             trust_remote_code=True,
             use_safetensors=True,
-            torch_dtype=torch.bfloat16,
+            torch_dtype=_model_dtype,
+            _attn_implementation=os.getenv("DOCX_OCR_ATTENTION", "eager"),
             low_cpu_mem_usage=True,
         )
         _model = m.eval().cuda()
+        adapt_infer_dtype(_model, _model_dtype, torch)
+        _resolved_revision = getattr(_model.config, "_commit_hash", None) or _resolved_revision
     return _tokenizer, _model
 
 
@@ -69,6 +104,8 @@ def _preload_model_on_startup() -> None:
     tưởng server đã sẵn sàng.
     """
     _get_model()
+    if os.getenv("DOCX_OCR_WARMUP", "0") == "1":
+        warmup_model()
 
 
 def _crop_whitespace(png_bytes: bytes, padding: int = 20) -> bytes:
@@ -82,75 +119,163 @@ def _crop_whitespace(png_bytes: bytes, padding: int = 20) -> bytes:
     quan cho 1 anh chi co mui ten "=>"). Crop sat noi dung + padding nho giup
     model tap trung dung vao cong thuc.
     """
-    img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
-    # bbox cua vung khac mau trang (nguong 250 de chiu nhieu anti-aliasing nhe)
-    gray = img.convert("L")
-    bbox = gray.point(lambda p: 0 if p < 250 else 255).getbbox()
-    if bbox is None:
-        return png_bytes  # anh toan trang -> tra nguyen goc, de OCR tu bao loi
-    left, top, right, bottom = bbox
-    left = max(0, left - padding)
-    top = max(0, top - padding)
-    right = min(img.width, right + padding)
-    bottom = min(img.height, bottom + padding)
-    cropped = img.crop((left, top, right, bottom))
-    out = io.BytesIO()
-    cropped.save(out, format="PNG")
-    return out.getvalue()
+    return crop_whitespace(png_bytes, padding)
 
 
 def convert_to_png(data: bytes, ext: str) -> bytes:
     """Convert WMF/EMF bytes -> PNG bytes qua LibreOffice headless (subprocess),
     sau do crop bot vien trang thua (xem _crop_whitespace)."""
-    with tempfile.TemporaryDirectory() as tmp:
-        in_path = os.path.join(tmp, f"formula.{ext}")
-        with open(in_path, "wb") as f:
-            f.write(data)
-        subprocess.run(
-            build_soffice_cmd(in_path, tmp),
-            check=True, capture_output=True, timeout=60,
-        )
-        out_path = os.path.join(tmp, "formula.png")
-        with open(out_path, "rb") as f:
-            raw_png = f.read()
-    return _crop_whitespace(raw_png)
+    prepared, errors = _prepare_images([("formula", data, ext)])
+    if errors:
+        raise ValueError(errors["formula"])
+    return prepared["formula"]
 
 
-def run_ocr(png_bytes: bytes) -> str:
+def _infer_transformers(png_bytes: bytes) -> str:
     """Chạy DeepSeek-OCR-2 trên ảnh PNG công thức (đã tightly-cropped sẵn)."""
     tokenizer, model = _get_model()
     with tempfile.TemporaryDirectory() as tmp:
         img_path = os.path.join(tmp, "formula.png")
         with open(img_path, "wb") as f:
             f.write(png_bytes)
-        with _gpu_lock:
-            result = model.infer(
-                tokenizer,
-                prompt="<image>\nOCR this formula to LaTeX.",
-                image_file=img_path,
-                # QUAN TRONG: Qwen2Decoder2Encoder.forward() (deepencoderv2.py) chi dinh
-                # nghia 2 embedding co dinh cho n_query == 144 (ung voi anh 768) hoac
-                # n_query == 256 (ung voi anh 1024) -- khong co nhanh else. base_size=640
-                # (hoac 512/1280) se sinh n_query khac 144/256 -> "param_img" khong duoc
-                # gan -> UnboundLocalError. Chi 768 va 1024 la gia tri hop le trong thuc
-                # te, du comment trong code goc co nhac 640/512/1280.
-                base_size=1024,
-                image_size=1024,
-                crop_mode=False,   # KHÔNG tile — đây là 1 công thức đơn, không phải cả trang
-                save_results=False,
-                # QUAN TRONG: infer() chi return outputs khi eval_mode=True. Voi
-                # eval_mode=False (mac dinh) va save_results=False, ham chay xong OCR
-                # (in qua streamer noi bo) nhung KHONG return gi ca (None) -> code goi
-                # se luon nhan chuoi rong. Phai bat eval_mode=True de lay duoc ket qua.
-                eval_mode=True,
-                output_path=tmp,
-            )
+        # The caller owns the GPU lock. Only 768/1024 are supported by this
+        # encoder; eval_mode=True is needed for infer() to return the text.
+        result = model.infer(tokenizer, prompt=_prompt, image_file=img_path,
+                             base_size=_image_size, image_size=_image_size,
+                             crop_mode=False, save_results=False,
+                             eval_mode=True, output_path=tmp)
     return result.strip() if isinstance(result, str) else ""
+
+
+def _namespace():
+    settings = [_MODEL_NAME, _resolved_revision, _backend, _image_size, _prompt,
+                "crop-v2", str(_model_dtype), os.getenv("DOCX_OCR_ATTENTION", "eager"),
+                os.getenv("DOCX_OCR_MAX_TOKENS", "1024")]
+    return hashlib.sha256(json.dumps(settings).encode()).hexdigest()
+
+
+def _prepare_images(items):
+    prepared, errors = {}, {}
+    with tempfile.TemporaryDirectory(prefix="ocr-batch-") as tmp:
+        vectors = []
+        for index, (oid, data, ext) in enumerate(items):
+            if needs_conversion(ext):
+                source = Path(tmp) / f"formula_{index}.{ext}"
+                source.write_bytes(data)
+                vectors.append((oid, source))
+            else:
+                try:
+                    prepared[oid] = _crop_whitespace(data)
+                except Exception as exc:
+                    errors[oid] = str(exc)
+        if vectors:
+            try:
+                subprocess.run(build_soffice_batch_cmd([str(p) for _, p in vectors], tmp, str(Path(tmp)/"profile")),
+                               check=False, capture_output=True, timeout=60)
+                for oid, source in vectors:
+                    try:
+                        prepared[oid] = _crop_whitespace(source.with_suffix(".png").read_bytes())
+                    except Exception as exc:
+                        errors[oid] = str(exc)
+            except Exception as exc:
+                errors.update({oid: str(exc) for oid, _ in vectors})
+    return prepared, errors
+
+
+def _infer_vllm(pngs):
+    from vllm import SamplingParams
+    _, model = _get_model()
+    inputs = [{"prompt": _prompt, "multi_modal_data": {"image": Image.open(io.BytesIO(png)).convert("RGB")}} for png in pngs]
+    params = SamplingParams(temperature=0.0, max_tokens=int(os.getenv("DOCX_OCR_MAX_TOKENS", "1024")),
+                            extra_args=dict(ngram_size=30, window_size=90,
+                                            whitelist_token_ids={128821, 128822}), skip_special_tokens=True)
+    outputs = model.generate(inputs, params)
+    if len(outputs) != len(pngs):
+        raise ValueError("Model returned a different batch length")
+    return [{"latex": output.outputs[0].text.strip(),
+             "error": "token limit reached" if output.outputs[0].finish_reason == "length" else ""}
+            for output in outputs]
+
+
+def recognize_items(items, use_cache=True):
+    started = perf_counter()
+    prepared, errors = _prepare_images(items)
+    prepare_s = perf_counter() - started
+    queue_start = perf_counter()
+    results = {oid: {"id": oid, "latex": "", "error": error} for oid, error in errors.items()}
+    with _gpu_lock:
+        queue_s = perf_counter() - queue_start
+        inference_start = perf_counter()
+        groups = {}
+        for oid, png in prepared.items():
+            key = hashlib.sha256(png).hexdigest()
+            if use_cache and key in _result_cache:
+                _result_cache.move_to_end(key)
+                results[oid] = {"id": oid, "latex": _result_cache[key]}
+            else:
+                groups.setdefault(key, []).append((oid, png))
+        missing = list(groups.items())
+        if _backend == "vllm" and missing:
+            try:
+                inferred = _infer_vllm([group[0][1] for _, group in missing])
+            except Exception as exc:
+                inferred = [{"latex": "", "error": str(exc)} for _ in missing]
+        else:
+            inferred = []
+            for _, group in missing:
+                try:
+                    inferred.append({"latex": _infer_transformers(group[0][1])})
+                except Exception as exc:
+                    inferred.append({"latex": "", "error": str(exc)})
+        for (key, group), result in zip(missing, inferred):
+            if result.get("error"):
+                result["latex"] = ""
+            if use_cache and result["latex"]:
+                _result_cache[key] = result["latex"]
+                while len(_result_cache) > _cache_limit:
+                    _result_cache.popitem(last=False)
+            for oid, _ in group:
+                results[oid] = {"id": oid, **result}
+        infer_s = perf_counter() - inference_start
+    return {"results": [results[oid] for oid, _, _ in items],
+            "timings": {"prepare_s": prepare_s, "queue_s": queue_s,
+                        "infer_s": infer_s, "total_s": perf_counter()-started}}
+
+
+def run_ocr(png_bytes: bytes) -> str:
+    with _gpu_lock:
+        return _infer_transformers(png_bytes)
+
+
+def warmup_model():
+    global _warmed_up
+    image = Image.new("RGB", (300, 100), "white")
+    ImageDraw.Draw(image).text((20, 25), "x + 1", fill="black", font_size=36)
+    buffer = io.BytesIO()
+    image.save(buffer, "PNG")
+    result = recognize_items([("warmup", buffer.getvalue(), "png")], use_cache=False)["results"][0]
+    if not result.get("latex"):
+        raise RuntimeError("Model warm-up failed: " + str(result.get("error", "empty OCR result")))
+    _warmed_up = True
+
+
+@app.middleware("http")
+async def check_api_key(request, call_next):
+    expected = os.getenv("DOCX_OCR_API_KEY", "")
+    if expected and request.url.path != "/health":
+        actual = request.headers.get("Authorization", "")
+        if not hmac.compare_digest(actual, "Bearer " + expected):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return await call_next(request)
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "model_loaded": _model is not None}
+    return {"status": "ok", "model_loaded": _model is not None,
+            "warmed_up": _warmed_up, "dtype": str(_model_dtype),
+            "batch": True, "max_batch_size": 32, "backend": _backend,
+            "cache_bypass_header": "X-OCR-Cache",
+            "cache_namespace": _namespace()}
 
 
 @app.post("/debug_png")
@@ -164,21 +289,34 @@ async def debug_png(file: UploadFile = File(...)):
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
     ext = ext_of(file.filename or "")
-    png = convert_to_png(data, ext) if needs_conversion(ext) else data
+    png = await run_in_threadpool(convert_to_png, data, ext) if needs_conversion(ext) else _crop_whitespace(data)
     return Response(content=png, media_type="image/png")
 
 
 @app.post("/ocr")
-async def ocr(file: UploadFile = File(...)):
+async def ocr(file: UploadFile = File(...), x_ocr_cache: str = Header("on")):
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
     ext = ext_of(file.filename or "")
     try:
-        png = convert_to_png(data, ext) if needs_conversion(ext) else data
-        latex = run_ocr(png)
+        result = await run_in_threadpool(recognize_items, [("formula", data, ext)], x_ocr_cache.lower() != "off")
+        return JSONResponse(result["results"][0])
     except Exception as exc:
         # Lỗi OCR/convert -> vẫn trả 200 với latex rỗng, để client (docx-extract)
         # coi như "không OCR được" (cảnh báo, giữ ảnh gốc) thay vì raise 500 phá batch.
         return JSONResponse({"latex": "", "error": str(exc)})
-    return JSONResponse({"latex": latex})
+
+
+@app.post("/ocr/batch")
+async def ocr_batch(files: list[UploadFile] = File(...), ids: str = Form(...), x_ocr_cache: str = Header("on")):
+    try:
+        item_ids = json.loads(ids)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="invalid ids")
+    if (not isinstance(item_ids, list) or not 1 <= len(files) <= 32
+            or len(item_ids) != len(files) or any(not isinstance(x, str) or not x for x in item_ids)
+            or len(set(item_ids)) != len(item_ids)):
+        raise HTTPException(status_code=400, detail="ids must be unique and match 1..32 files")
+    items = [(oid, await file.read(), ext_of(file.filename or "")) for oid, file in zip(item_ids, files)]
+    return await run_in_threadpool(recognize_items, items, x_ocr_cache.lower() != "off")

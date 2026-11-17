@@ -1,11 +1,13 @@
 import json
 import os
 import re
+from time import perf_counter
 from . import ns
 from .loader import load
 from .context import Context
 from .runs import render_paragraph
 from .tables import render_table
+from .xmlwalk import iter_blocks
 
 
 def _paragraph_text(p) -> str:
@@ -30,12 +32,13 @@ def _paragraph_text(p) -> str:
 _ANCHOR_RE = re.compile(r"^(PHẦN|Nhóm|Câu)\b")
 
 
-def clean_docx(path: str):
+def clean_docx(path: str, *, ocr_client=None):
+    started = perf_counter()
     doc = load(path)
-    ctx = Context(rels=doc.rels, assets=doc.assets)
+    ctx = Context(rels=doc.rels, assets=doc.assets, defer_ocr=True)
     all_lines = []
     anchor_idx = None
-    for child in doc.body:
+    for child in iter_blocks(doc.body):
         if child.tag == ns.q("w", "p"):
             if anchor_idx is None and _ANCHOR_RE.match(_paragraph_text(child).strip()):
                 anchor_idx = len(all_lines)
@@ -53,6 +56,10 @@ def clean_docx(path: str):
     else:
         lines = all_lines[anchor_idx:]
     markup = "\n".join(lines)
+    parse_seconds = perf_counter() - started
+    ctx.resolve_ocr(ocr_client)
+    ctx.ocr_stats["parse_s"] = parse_seconds
+    ctx.ocr_stats["document_s"] = perf_counter() - started
     return markup, ctx
 
 
@@ -66,5 +73,5 @@ def write_outputs(markup: str, ctx: Context, out_dir: str) -> None:
         with open(os.path.join(side, fn), "wb") as f:
             f.write(data)
     with open(os.path.join(out_dir, "manifest.json"), "w", encoding="utf-8") as f:
-        json.dump({"assets": ctx.manifest, "warnings": ctx.warnings}, f,
+        json.dump({"assets": ctx.manifest, "warnings": ctx.warnings, "ocr": ctx.ocr_stats}, f,
                   ensure_ascii=False, indent=2)

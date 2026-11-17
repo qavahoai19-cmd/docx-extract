@@ -1,6 +1,7 @@
 import re
 from . import ns
 from . import answer
+from .xmlwalk import content_children, iter_blocks
 
 
 # Azota render w:tab bằng chuỗi dấu cách để căn cột giữa các phương án.
@@ -43,9 +44,25 @@ def wrap(text, fmt):
         return f"[!i:${text}$]"
     return text
 
+def _render_graphic(node, ctx, segments):
+    if node.tag in {ns.q("a", "blip"), ns.q("v", "imagedata")}:
+        segments.append(("raw", None, ctx.image(node)))
+        return
+    if node.tag == ns.q("w", "txbxContent"):
+        from .tables import render_table
+        parts = [render_paragraph(block, ctx) if block.tag == ns.q("w", "p")
+                 else render_table(block, ctx) for block in iter_blocks(node)]
+        segments.append(("raw", None, "\n".join(parts)))
+        return
+    if node.tag in {ns.q("w", "del"), ns.q("w", "moveFrom")}:
+        return
+    for child in content_children(node):
+        _render_graphic(child, ctx, segments)
+
+
 def _render_run(r, ctx, segments):
     fmt = run_format(r.find(ns.q("w", "rPr")))
-    for child in r:
+    for child in content_children(r):
         tag = child.tag
         if tag == ns.q("w", "t"):
             segments.append(("text", fmt, child.text or ""))
@@ -53,22 +70,24 @@ def _render_run(r, ctx, segments):
             segments.append(("text", fmt, TAB_SPACES))
         elif tag == ns.q("w", "br"):
             segments.append(("raw", None, "\n"))
-        elif tag == ns.q("w", "drawing") and ctx is not None:
-            segments.append(("raw", None, ctx.image(child)))
+        elif tag in {ns.q("w", "drawing"), ns.q("w", "pict")} and ctx is not None:
+            _render_graphic(child, ctx, segments)
         elif tag == ns.q("w", "object") and ctx is not None:
             rendered = ctx.ole(child)
             if rendered is not None:
                 segments.append(("raw", None, rendered))
+            else:
+                _render_graphic(child, ctx, segments)
+        elif tag == ns.q("w", "r"):
+            _render_run(child, ctx, segments)
 
 def _walk(parent, ctx, segments):
-    for child in parent:
+    for child in content_children(parent):
         tag = child.tag
         if tag == ns.q("w", "r"):
             _render_run(child, ctx, segments)
         elif tag in (ns.q("m", "oMath"), ns.q("m", "oMathPara")) and ctx is not None:
             segments.append(("raw", None, ctx.omml(child)))
-        elif tag == ns.q("w", "hyperlink"):
-            _walk(child, ctx, segments)
 
 def _coalesce(segments):
     merged = []

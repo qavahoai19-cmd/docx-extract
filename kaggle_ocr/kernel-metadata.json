@@ -1,0 +1,17 @@
+{
+  "id": "quanganh2005/docx-ocr-kaggle-gpu",
+  "title": "DOCX OCR Kaggle GPU",
+  "code_file": "docx_ocr_kaggle.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": true,
+  "enable_internet": true,
+  "machine_shape": "NvidiaTeslaT4",
+  "dataset_sources": [
+    "quanganh2005/docx-ocr-private-benchmark-130"
+  ],
+  "competition_sources": [],
+  "kernel_sources": [],
+  "model_sources": []
+}

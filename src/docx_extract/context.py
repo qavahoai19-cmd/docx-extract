@@ -1,9 +1,12 @@
 import posixpath
+import os
+from time import perf_counter
 from dataclasses import dataclass, field
 from lxml import etree
 from . import ns
 from . import mathlatex
 from . import mathocr
+from . import mathnative
 
 
 @dataclass
@@ -16,6 +19,67 @@ class Context:
     warnings: list = field(default_factory=list)
     latex: dict = field(default_factory=dict)     # oid -> LaTeX (OMML + OCR mathtype)
     ocr_fn: object = None   # Callable[[bytes, str], str | None] | None — tiêm cho test
+    defer_ocr: bool = False
+    pending_ocr: list = field(default_factory=list)
+    ocr_stats: dict = field(default_factory=dict)
+    native_stats: dict = field(default_factory=lambda: dict(native_attempted=0, native_success=0, native_fallback=0, native_s=0.0))
+
+    def _finish_stats(self):
+        defaults = dict(http_requests=0, cache_hits=0, remote_images=0, total_s=0.0,
+                        server_prepare_s=0.0, server_infer_s=0.0)
+        defaults.update(self.ocr_stats)
+        defaults["ocr_total"] = defaults.get("total", 0)
+        equations = [item for item in self.manifest if item["type"] == "mathtype"]
+        defaults["total"] = len(equations)
+        defaults["failures"] = sum(not item.get("latex") for item in equations)
+        defaults.update(self.native_stats)
+        self.ocr_stats = defaults
+
+    def _native_mathtype(self, ole_obj, entry):
+        if self.ocr_fn is not None or os.getenv("DOCX_EXTRACT_NATIVE_MATH", "0").lower() in {"off", "0", "false"}:
+            return False
+        started = perf_counter()
+        self.native_stats["native_attempted"] += 1
+        try:
+            rid = ole_obj.get(ns.q("r", "id"))
+            _, data = self._resolve(rid)
+            if data is None:
+                return False
+            latex = mathnative.ole_to_latex(data)
+            entry.update(latex=latex, method="mtef-v5")
+            self.latex[entry["id"]] = latex
+            self.native_stats["native_success"] += 1
+            return True
+        except Exception as exc:
+            entry["native_error"] = str(exc)
+            return False
+        finally:
+            self.native_stats["native_s"] += perf_counter()-started
+            self.native_stats["native_fallback"] = self.native_stats["native_attempted"]-self.native_stats["native_success"]
+
+    def resolve_ocr(self, client=None):
+        if not self.pending_ocr:
+            self._finish_stats()
+            return
+        jobs, self.pending_ocr = self.pending_ocr, []
+        try:
+            if client is None:
+                with mathocr.OCRClient() as owned:
+                    results = owned.recognize([(oid, data, ext) for oid, data, ext, _ in jobs])
+                    self.ocr_stats = dict(owned.stats)
+            else:
+                results = client.recognize([(oid, data, ext) for oid, data, ext, _ in jobs])
+                self.ocr_stats = dict(client.stats)
+        except Exception as exc:
+            results = {oid: {"latex": None, "error": f"OCR thất bại: {exc}"} for oid, _, _, _ in jobs}
+        for oid, _, _, entry in jobs:
+            result = results[oid]
+            entry["latex"] = result["latex"]
+            if result["latex"]:
+                self.latex[oid] = result["latex"]
+            else:
+                self.warnings.append(f"{oid}: {result['error']}")
+        self._finish_stats()
 
     def _next(self, prefix: str) -> str:
         self.counter += 1
@@ -45,8 +109,11 @@ class Context:
 
     def image(self, drawing) -> str:
         oid = self._next("img")
-        blip = drawing.find(f".//{ns.q('a', 'blip')}")
-        rid = blip.get(ns.q("r", "embed")) if blip is not None else None
+        if drawing.tag == ns.q("v", "imagedata"):
+            rid = drawing.get(ns.q("r", "id"))
+        else:
+            blip = drawing if drawing.tag == ns.q("a", "blip") else drawing.find(f".//{ns.q('a', 'blip')}")
+            rid = blip.get(ns.q("r", "embed")) if blip is not None else None
         path, data = self._resolve(rid)
         if data is None:
             self.warnings.append(f"{oid}: rId {rid} không giải được")
@@ -90,14 +157,21 @@ class Context:
         rid = imagedata.get(ns.q("r", "id")) if imagedata is not None else None
         path, data = self._resolve(rid)
         if data is None:
-            self.warnings.append(f"{oid}: OLE render rId {rid} không giải được")
-            self.manifest.append({"id": oid, "type": "mathtype", "source": "missing", "rid": rid})
+            entry = {"id": oid, "type": "mathtype", "source": "missing", "rid": rid}
+            if not self._native_mathtype(ole_obj, entry):
+                self.warnings.append(f"{oid}: OLE render rId {rid} không giải được")
+            self.manifest.append(entry)
         else:
             ext = self._ext(path)
             fn = f"{oid}.{ext}"
             self.written[fn] = data
-            self._ocr_mathtype(oid, data, ext)
-            self.manifest.append(
-                {"id": oid, "type": "mathtype", "source": path, "latex": self.latex.get(oid)}
-            )
+            entry = {"id": oid, "type": "mathtype", "source": path, "latex": None}
+            if self._native_mathtype(ole_obj, entry):
+                pass
+            elif self.defer_ocr:
+                self.pending_ocr.append((oid, data, ext, entry))
+            else:
+                self._ocr_mathtype(oid, data, ext)
+                entry["latex"] = self.latex.get(oid)
+            self.manifest.append(entry)
         return f"[!m:${oid}$]"
