@@ -1,5 +1,29 @@
 # Chạy DOCX OCR trên Kaggle
 
+## Notebook xem câu hỏi, không cần OCR
+
+[docx_questions_kaggle.ipynb](./docx_questions_kaggle.ipynb) là notebook riêng cho chế độ giữ công thức gốc: Accelerator **None (CPU)**, bật Internet lần đầu rồi **Run All**. Đề mẫu đầu tiên tự hiển thị; menu **Đề mẫu → Chạy đề mẫu** cho phép chọn đề tiếng Anh tô vàng hoặc đề Toán. Chọn DOCX/ZIP khác và bấm **Bóc câu hỏi** để xem ngay dưới giao diện. Nội dung gồm câu hỏi, phương án, công thức và hình.
+
+Mặc định hiển thị **Đề thi A4**, ẩn dấu đáp án. Mở **Thông tin bản in** trước khi bóc để điền trường/đơn vị, tên kỳ thi, môn, thời gian và mã đề. Bản in có thông tin thí sinh, ngữ liệu, câu hỏi và dòng HẾT; không tự thêm tên cơ quan hay thời gian thi nếu chưa được nhập. Bấm **Tải bản đề thi A4**, mở HTML đã tải rồi **In / lưu PDF**. ZIP có `de-thi.html` cho học sinh và `de-thi-co-dap-an.html` để đối chiếu. Chế độ **Xem câu hỏi** vẫn có sẵn.
+
+Chỉ điền **Bắt đầu từ** khi muốn bỏ phần ôn tập trước một mục xác định. Mặc định toàn bộ nội dung nguồn được giữ. Đề mẫu tiếng Anh đóng gói sẵn được chọn rõ từ mục PRACTICE; việc chọn này không áp dụng cho file tải lên. Dữ liệu gốc vẫn nằm trong markup và sidecar. Notebook này vẫn nhận DOCX/ZIP, chưa nhận ảnh chụp để OCR toàn trang.
+
+Word Equation hiển thị từ XML OMML gốc. MathType giữ ảnh gốc và chỉ chuyển WMF/EMF sang PNG để xem, không OCR hay sinh LaTeX. ZIP kết quả có `questions.html`, markup, manifest và sidecar. Nếu chuyển ảnh lỗi, giao diện báo và vẫn giữ dữ liệu gốc. Giữ notebook Private vì có đề mẫu/đề tải lên. Bản xem không bảo đảm khôi phục mọi bố cục hoặc nhận đủ ký hiệu phông cũ; chế độ này không dùng để tuyên bố tốc độ OCR.
+
+Với bảng LMS, bản xem đọc riêng loại câu và cột đáp án: câu lựa chọn A–D, nhiều lựa chọn, các ý Đúng/Sai thuộc câu dẫn, và đáp án điền khuyết. Nhãn A–D là danh sách `upperLetter` được đánh số trực tiếp trong Word được giữ trong chế độ này. Dữ liệu cấu trúc nằm ở `questions.json`; `questions-answers.html` là bản có đáp án, `questions.html` là bản câu hỏi. Ô **Hiện đáp án đúng trong file** đổi giữa hai cách xem. Khi cột Đáp án đúng và dấu `*` không khớp, giao diện báo mâu thuẫn; câu thiếu dữ liệu được báo để kiểm tra, không tự giải hoặc đoán đáp án. Các dạng kéo thả/tự luận chỉ giữ nội dung và khóa đáp án nguồn, chưa kiểm định ngữ nghĩa chấm bài.
+
+Build lại với Python của project: `python kaggle_ocr/build_preserve_notebook.py --sample "duong-dan-de.docx"`. Có thể lặp `--sample` để đóng gói nhiều đề mẫu. Bản đã import trên Kaggle không tự cập nhật khi sửa nguồn hoặc push GitHub.
+
+Nếu phiên cũ báo `spec not found for the module 'docx_extract.numbering'`, import lại notebook mới rồi **Run All**. Bộ nạp mới giải nén mỗi bundle vào thư mục phiên bản riêng và nhập lại cả package của bộ đọc, tránh dùng `__path__` hoặc bytecode từ lần chạy trước. Mã phiên bản hiện ở ô cuối để đối chiếu.
+
+Bộ đọc giữ toàn bộ phần đầu tài liệu, gồm ngữ liệu đọc hiểu, dòng “Cho biết…” và bảng dữ kiện trước câu 1. Kết quả field và các ký hiệu Symbol như →, Ω, Δ, √ cũng được giữ. Sau khi thay notebook, cần import bản mới và chạy lại để nhận bản sửa; các file kết quả đã xuất trước đó không tự cập nhật.
+
+Dấu gạch chân đánh dấu đáp án được đọc cả khi chữ A–D và dấu chấm nằm ở các run khác nhau; không suy ra đáp án từ chữ in đậm. Bảng LMS được đọc theo hàng đầy đủ dù ô có xuống dòng hoặc bảng lồng; hỗ trợ cả tên cột “Đáp án” và “Đáp án đúng”. Công thức dài cuộn ngang trong khung riêng để không đẩy chữ ra ngoài bản xem. Ô cuối notebook hiện mã phiên bản bộ đọc và kiểm tra bundle, tránh chạy nhầm nguồn còn lưu từ phiên cũ.
+
+Với đề tô nền, bộ đọc nhận highlight hoặc shading trên nhãn A–D hay phần nội dung phương án; không dùng màu chữ xanh của nhãn để suy ra đáp án. Gạch chân trong từ ở bài phát âm được giữ trong bản xem và không tự đánh dấu đúng. Câu mang nhãn “Question” được tách cả khi nằm trong bảng bốn cột hoặc nhiều câu chung một đoạn Word. ZIP có dữ liệu câu và dấu đáp án ở `questions.json` cho cả đề thông thường. Khi có cột đáp án LMS, cột này vẫn được đối chiếu với dấu định dạng và báo nếu mâu thuẫn.
+
+## Notebook chạy model OCR
+
 GPU chỉ cần cho phần DeepSeek-OCR-2 trong cấu hình hiện tại. Bóc DOCX, cache và chuyển định dạng chạy trên CPU. Bộ đọc MathType trực tiếp đã có ở chế độ thử nghiệm nhưng **mặc định tắt**: mục tiêu người dùng là **code + model OCR thực sự chạy trong 6–7 giây cho đề mới**, không được dùng kết quả đọc native hoặc cache thay cho phép đo này.
 
 [Notebook tự chứa](./docx_ocr_kaggle.ipynb) đã kèm code client/server, ô chọn file, ảnh PNG kiểm tra GPU và đề mẫu 16 công thức. Đọc đề mới không cần tạo Kaggle Dataset. Giữ notebook **Private** vì bundle chứa dữ liệu đề. Kaggle giới hạn mã nguồn notebook dưới 1 MB; đề mới đi qua nút chọn file hoặc Input riêng.

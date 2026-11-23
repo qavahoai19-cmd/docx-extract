@@ -14,29 +14,17 @@ def _paragraph_text(p) -> str:
     return "".join(t.text or "" for t in p.iter(ns.q("w", "t")))
 
 
-# Đề thi thường mở đầu bằng một section-heading dạng "PHẦN I. ...", "Nhóm
-# I..." hoặc trực tiếp "Câu 1: ...". Trước heading này, một số file mẫu có
-# các đoạn "metadata" nội bộ (vd "---NTP", "Cho biết: ...") không xuất hiện
-# trong panel Azota — NHƯNG các công thức/ảnh nằm trong các đoạn đó vẫn được
-# Azota tính vào bộ đếm placeholder toàn cục (bằng chứng: golden bắt đầu ở
-# mathtype_3, tức đã "tiêu" 2 số cho đúng 2 công thức nằm trong 2 đoạn mở
-# đầu này). Ta tái tạo hành vi đó: vẫn gọi render_paragraph/render_table cho
-# MỌI đoạn để bộ đếm tăng đúng, nhưng chỉ bỏ dòng ra khỏi markup cho tới khi
-# gặp anchor nội dung thật đầu tiên (PHẦN/Nhóm/Câu).
-#
-# Đây là một content-based heuristic có chủ đích bị giới hạn phạm vi: nếu
-# KHÔNG file nào trong toàn bộ body khớp anchor (một đề có heading khác hẳn,
-# hoặc không có heading), ta KHÔNG được phép âm thầm trả về markup rỗng —
-# phải xuất toàn bộ nội dung đã render và cảnh báo, để lỗi hiển thị thay vì
-# biến mất (constraint "không bao giờ crash / luôn xuất output có nghĩa").
-_ANCHOR_RE = re.compile(r"^(PHẦN|Nhóm|Câu)\b")
+# Headings are diagnostic only. Material before the first question can be
+# essential reading passages, constants, diagrams or shared data tables.
+_ANCHOR_RE = re.compile(r"^(PHẦN|Nhóm|Câu|Question)\b", re.IGNORECASE)
 
 
-def extract_docx(path: str, *, native_math=None):
+def extract_docx(path: str, *, native_math=None, preserve_formulas=False):
     """Extract content and collect OCR jobs without contacting a model."""
     started = perf_counter()
-    doc = load(path)
-    ctx = Context(rels=doc.rels, assets=doc.assets, defer_ocr=True, native_math=native_math)
+    doc = load(path, preserve_numbering=True) if preserve_formulas else load(path)
+    ctx = Context(rels=doc.rels, assets=doc.assets, defer_ocr=True, native_math=native_math,
+                  preserve_formulas=preserve_formulas, numbering=doc.numbering if preserve_formulas else {})
     all_lines = []
     anchor_idx = None
     for child in iter_blocks(doc.body):
@@ -53,18 +41,15 @@ def extract_docx(path: str, *, native_math=None):
         ctx.warnings.append(
             "no PHẦN/Nhóm/Câu anchor found — emitting full body"
         )
-        lines = all_lines
-    else:
-        lines = all_lines[anchor_idx:]
-    markup = "\n".join(lines)
+    markup = "\n".join(all_lines)
     parse_seconds = perf_counter() - started
     ctx.ocr_stats["parse_s"] = parse_seconds
     return markup, ctx
 
 
-def clean_docx(path: str, *, ocr_client=None):
+def clean_docx(path: str, *, ocr_client=None, preserve_formulas=False):
     started = perf_counter()
-    markup, ctx = extract_docx(path)
+    markup, ctx = extract_docx(path, preserve_formulas=preserve_formulas)
     parse_seconds = ctx.ocr_stats["parse_s"]
     ctx.resolve_ocr(ocr_client)
     ctx.ocr_stats["parse_s"] = parse_seconds

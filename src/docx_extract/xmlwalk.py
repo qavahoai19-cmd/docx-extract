@@ -15,6 +15,10 @@ _SUPPORTED_NAMESPACES = {
 }
 _TRANSPARENT = {ns.q("w", name) for name in (
     "sdt", "sdtContent", "customXml", "hyperlink", "smartTag", "ins", "moveTo",
+    "fldSimple",
+)}
+_NON_CONTENT = {ns.q("w", name) for name in (
+    "del", "moveFrom", "sdtPr", "sdtEndPr", "customXmlPr",
 )}
 
 
@@ -40,6 +44,8 @@ def selected_children(parent):
 
 def content_children(parent):
     for child in selected_children(parent):
+        if child.tag in _NON_CONTENT:
+            continue
         if child.tag in _TRANSPARENT or child.tag == MC + "AlternateContent":
             yield from content_children(child)
         else:

@@ -1,0 +1,16 @@
+html,body{background:white!important;color:black!important;font-family:"Times New Roman",serif!important}
+.sidebar,.topbar,.outline,.reader-footer,.paper-topline,.toast,.backdrop{display:none!important}
+.app,.main,.workspace{display:block!important;min-height:0!important}
+.workspace{padding:20px!important;max-width:980px;margin:0 auto}
+.paper{border:0!important;box-shadow:none!important;border-radius:0!important;padding:0!important;min-height:0!important;background:white!important;font-size:19px!important;line-height:1.6!important}
+.question{border-bottom:0!important;margin:0 0 18px!important;padding:0!important;scroll-margin:0!important;break-inside:avoid}
+.question:after{content:"";display:block;clear:both}
+.question-heading{float:left;display:block!important;margin:0 .35em 0 0!important;padding:0!important}
+.question-number{font:inherit!important;font-weight:bold!important;background:none!important;color:black!important;border:0!important;padding:0!important}
+.question-number:after{content:":"}
+.question-body>p:first-child{margin-top:0!important}
+.option{border-color:transparent!important;border-radius:0!important;padding:3px 8px!important}
+body:not(.show-correct-answers) .option.correct{background:transparent!important;color:black!important;border-color:transparent!important}
+body:not(.show-correct-answers) .answer-check,body:not(.show-correct-answers) .truth-badge,body:not(.show-correct-answers) .short-answer{display:none!important}
+.asset-image{border:0!important;background:transparent!important}
+@media print{@page{margin:15mm}.workspace{padding:0!important;max-width:none}.paper{font-size:12pt!important}body:not(.show-correct-answers) .option.correct{background:transparent!important}}

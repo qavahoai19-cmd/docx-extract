@@ -38,3 +38,26 @@ def test_clean_docx_no_anchor_emits_full_body_with_warning(monkeypatch):
     assert "Đề không có heading chuẩn" in markup
     assert "Một số nội dung khác cần được giữ lại" in markup
     assert any("no PHẦN/Nhóm/Câu anchor found" in w for w in ctx.warnings)
+
+
+def test_reading_passage_and_data_table_before_first_question_are_preserved(monkeypatch):
+    from docx_extract import assemble
+    from docx_extract.loader import Document
+
+    body = etree.fromstring(
+        f'<w:body xmlns:w="{ns.W[1:-1]}">'
+        '<w:p><w:r><w:t>Đọc ngữ liệu sau và trả lời câu hỏi:</w:t></w:r></w:p>'
+        '<w:p><w:r><w:t>Đây là đoạn văn bắt buộc để làm bài.</w:t></w:r></w:p>'
+        '<w:tbl><w:tr><w:tc><w:p><w:r><w:t>Cho biết: H = 1</w:t></w:r>'
+        '</w:p></w:tc></w:tr></w:tbl>'
+        '<w:p><w:r><w:t>Câu 1: Dựa vào ngữ liệu trên.</w:t></w:r></w:p>'
+        '</w:body>'
+    )
+    monkeypatch.setattr(assemble, "load", lambda _: Document(body, {}, {}))
+    markup, _ = assemble.extract_docx("unused.docx")
+    assert markup.splitlines() == [
+        "Đọc ngữ liệu sau và trả lời câu hỏi:",
+        "Đây là đoạn văn bắt buộc để làm bài.",
+        "[* Cho biết: H = 1 *]",
+        "Câu 1: Dựa vào ngữ liệu trên.",
+    ]

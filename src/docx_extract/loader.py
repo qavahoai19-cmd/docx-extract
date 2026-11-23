@@ -1,8 +1,9 @@
 import zipfile
 import posixpath
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from lxml import etree
 from . import ns
+from .numbering import read_numbering
 
 
 @dataclass
@@ -10,11 +11,13 @@ class Document:
     body: etree._Element
     rels: dict          # rId -> full zip path
     assets: dict        # full zip path -> bytes
+    numbering: dict = field(default_factory=dict)
 
 
-def load(path: str) -> Document:
+def load(path: str, *, preserve_numbering=False) -> Document:
     with zipfile.ZipFile(path) as z:
         doc_xml = z.read("word/document.xml")
+        numbering_xml = z.read("word/numbering.xml") if preserve_numbering and "word/numbering.xml" in z.namelist() else None
         # Một docx hợp lệ nhưng không có ảnh/OLE/relationship nào có thể
         # không có phần word/_rels/document.xml.rels trong zip — không được
         # crash giữa chừng vì thiếu 1 part không bắt buộc.
@@ -39,4 +42,4 @@ def load(path: str) -> Document:
             # Target tương đối với thư mục word/ ; chuẩn hoá về đường dẫn zip
             full = posixpath.normpath(posixpath.join("word", target))
             rels[rid] = full
-    return Document(body=body, rels=rels, assets=assets)
+    return Document(body=body, rels=rels, assets=assets, numbering=read_numbering(numbering_xml))

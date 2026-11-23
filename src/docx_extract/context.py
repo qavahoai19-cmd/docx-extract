@@ -24,6 +24,9 @@ class Context:
     ocr_stats: dict = field(default_factory=dict)
     native_stats: dict = field(default_factory=lambda: dict(native_attempted=0, native_success=0, native_fallback=0, native_s=0.0))
     native_math: bool | None = None
+    preserve_formulas: bool = False
+    numbering: dict = field(default_factory=dict)
+    numbering_counters: dict = field(default_factory=dict)
 
     def _finish_stats(self):
         defaults = dict(http_requests=0, cache_hits=0, remote_images=0, total_s=0.0,
@@ -32,13 +35,16 @@ class Context:
         defaults["ocr_total"] = defaults.get("total", 0)
         equations = [item for item in self.manifest if item["type"] == "mathtype"]
         defaults["total"] = len(equations)
-        defaults["failures"] = sum(not item.get("latex") for item in equations)
+        defaults["failures"] = sum(not item.get("latex") and not item.get("preserved") for item in equations)
+        if self.preserve_formulas:
+            defaults["mode"] = "preserve_formulas"
+            defaults["preserved_formulas"] = sum(bool(item.get("preserved")) for item in self.manifest)
         defaults.update(self.native_stats)
         self.ocr_stats = defaults
 
     def _native_mathtype(self, ole_obj, entry):
         enabled = self.native_math if self.native_math is not None else os.getenv("DOCX_EXTRACT_NATIVE_MATH", "0").lower() not in {"off", "0", "false"}
-        if self.ocr_fn is not None or not enabled:
+        if self.preserve_formulas or self.ocr_fn is not None or not enabled:
             return False
         started = perf_counter()
         self.native_stats["native_attempted"] += 1
@@ -98,6 +104,10 @@ class Context:
         oid = self._next("mathml")
         frag = etree.tostring(elem, encoding="utf-8")
         self.written[f"{oid}.xml"] = frag
+        if self.preserve_formulas:
+            self.manifest.append({"id": oid, "type": "mathml", "source": "inline-omml",
+                                  "latex": None, "preserved": True, "method": "original-omml"})
+            return f"[!m:${oid}$]"
         latex = mathlatex.omml_to_latex(elem)
         if latex is None:
             self.warnings.append(f"{oid}: OMML->LaTeX thất bại, giữ placeholder")
@@ -172,7 +182,9 @@ class Context:
             fn = f"{oid}.{ext}"
             self.written[fn] = data
             entry = {"id": oid, "type": "mathtype", "source": path, "latex": None}
-            if self._native_mathtype(ole_obj, entry):
+            if self.preserve_formulas:
+                entry.update(preserved=True, method="original-image")
+            elif self._native_mathtype(ole_obj, entry):
                 pass
             elif self.defer_ocr:
                 self.pending_ocr.append((oid, data, ext, entry))

@@ -18,8 +18,6 @@ def element(tag, content):
         f'xmlns:r="{ns.R[1:-1]}" xmlns:mc="{MC}" xmlns:wpg="{WPG}">'
         f'{content}</w:{tag}>'
     )
-
-
 def equation(rid):
     return (f'<w:r><w:object><v:shape><v:imagedata r:id="{rid}"/></v:shape>'
             '<o:OLEObject ProgID="Equation.DSMT4"/></w:object></w:r>')
