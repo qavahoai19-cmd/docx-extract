@@ -125,17 +125,24 @@ def _render_graphic(node, ctx, segments):
 
 
 def _render_run(r, ctx, segments):
-    fmt = run_format(r.find(ns.q("w", "rPr")))
+    properties = r.find(ns.q("w", "rPr"))
+    fmt = run_format(properties)
+    fonts = properties.find(ns.q('w', 'rFonts')) if properties is not None else None
+    family = (fonts.get(ns.q('w', 'ascii')) or fonts.get(ns.q('w', 'hAnsi')) or '') if fonts is not None else ''
     for child in content_children(r):
-        _render_inline(child, ctx, segments, fmt)
+        _render_inline(child, ctx, segments, fmt, family)
 
 
-def _render_inline(node, ctx, segments, fmt=None):
+def _render_inline(node, ctx, segments, fmt=None, family=''):
     tag = node.tag
     if tag == ns.q("w", "r"):
         _render_run(node, ctx, segments)
     elif tag == ns.q("w", "t"):
-        segments.append(("text", fmt or run_format(None), node.text or ""))
+        text = node.text or ''
+        if family.casefold() in {'symbol', 'euclid symbol'}:
+            text = ''.join(_SYMBOL_GLYPHS.get(chr(ord(c) - 0xF000), c)
+                           if 0xF000 <= ord(c) <= 0xF0FF else c for c in text)
+        segments.append(("text", fmt or run_format(None), text))
     elif tag == ns.q("w", "sym"):
         segments.append(("text", fmt or run_format(None), _symbol_text(node, ctx)))
     elif tag == ns.q("w", "tab"):
@@ -166,7 +173,7 @@ def _render_inline(node, ctx, segments, fmt=None):
         # Recover visible descendants of unfamiliar inline wrappers. Properties,
         # field instructions and tracked deletions must never become body text.
         for child in content_children(node):
-            _render_inline(child, ctx, segments, fmt)
+            _render_inline(child, ctx, segments, fmt, family)
 
 def _walk(parent, ctx, segments):
     for child in content_children(parent):

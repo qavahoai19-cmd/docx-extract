@@ -71,6 +71,16 @@ def test_transparent_background_is_flattened_to_white():
         assert crop.getpixel((0,0)) == (255,255,255)
 
 
+def test_diagnostic_png_matches_the_pixels_passed_to_inference(client, monkeypatch):
+    import base64
+    seen = []
+    monkeypatch.setattr(server, '_infer_transformers', lambda data: seen.append(data) or 'x')
+    response = client.post('/ocr/batch', headers={'X-OCR-Debug': 'on'}, data={'ids': '["a"]'},
+                           files=[('files', ('one.png', png()))]).json()
+    assert base64.b64decode(response['ocr_inputs']['a']) == seen[0]
+    assert response['ocr_input_settings']['image_size'] == 1024
+
+
 def test_batch_isolates_corrupt_image_and_preserves_ids(client):
     response = client.post("/ocr/batch", data={"ids": json.dumps(["good", "bad"])},
                            files=[("files",("one.png",png())),("files",("two.png",b"broken"))])
@@ -87,6 +97,8 @@ def test_batch_rejects_duplicate_ids(client):
 
 
 def test_vectors_use_one_libreoffice_process_per_batch(client, monkeypatch):
+    # This test isolates batching; font decoding has real WMF regression tests.
+    monkeypatch.setattr(server, 'prepare_wmf', lambda data: (data, 'wmf'))
     calls=[]
     def convert(command, **kwargs):
         calls.append(command)

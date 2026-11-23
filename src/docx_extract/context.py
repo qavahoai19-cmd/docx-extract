@@ -7,6 +7,7 @@ from . import ns
 from . import mathlatex
 from . import mathocr
 from . import mathnative
+from .vector_fonts import read_wmf_number
 
 
 @dataclass
@@ -36,6 +37,7 @@ class Context:
         equations = [item for item in self.manifest if item["type"] == "mathtype"]
         omml = [item for item in self.manifest if item["type"] == "mathml" and not item.get("empty")]
         defaults["mathtype_total"] = len(equations)
+        defaults['wmf_direct'] = sum(item.get('method') == 'wmf-number' for item in equations)
         defaults["omml_objects"] = sum(item["type"] == "mathml" for item in self.manifest)
         defaults["omml_total"] = sum(item.get("formula_count", 1) for item in omml)
         defaults["omml_failures"] = sum(item.get("formula_count", 1) for item in omml
@@ -199,8 +201,12 @@ class Context:
             fn = f"{oid}.{ext}"
             self.written[fn] = data
             entry = {"id": oid, "type": "mathtype", "source": path, "latex": None}
+            number = read_wmf_number(data) if ext == 'wmf' and self.ocr_fn is None else None
             if self.preserve_formulas:
                 entry.update(preserved=True, method="original-image")
+            elif number is not None:
+                entry.update(latex=number, method='wmf-number')
+                self.latex[oid] = number
             elif self._native_mathtype(ole_obj, entry):
                 pass
             elif self.defer_ocr:

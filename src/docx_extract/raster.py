@@ -106,6 +106,15 @@ def _rasterize(data, ext):
 
 
 def prepare_image(data: bytes, ext: str) -> tuple[bytes, str]:
+    if ext.lower() == 'wmf':
+        from .vector_fonts import prepare_wmf
+        try:
+            repaired, kind = prepare_wmf(data)
+        except (ValueError, ImportError, OSError):
+            return data, ext
+        if kind == 'png':
+            return repaired, kind
+        data = repaired
     if os.name != "nt" or ext.lower() not in {"wmf", "emf"}:
         return data, ext
     try:

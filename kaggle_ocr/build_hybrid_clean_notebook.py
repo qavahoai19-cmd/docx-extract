@@ -12,6 +12,9 @@ def build(target=TARGET):
     app = (HERE / "hybrid_clean_app.py").read_text(encoding="utf-8")
     worker = (HERE / "hybrid_clean_worker.py").read_text(encoding="utf-8")
     image_helpers = (HERE / "hybrid_formula_images.py").read_text(encoding="utf-8")
+    font_helpers = (HERE / "vector_fonts.py").read_text(encoding="utf-8")
+    font_import = "try:\n    from vector_fonts import prepare_wmf\nexcept ImportError:\n    from kaggle_ocr.vector_fonts import prepare_wmf"
+    image_helpers = font_helpers + '\n' + image_helpers.replace(font_import, '')
     helper_import = "from hybrid_formula_images import mark_docx_images, prepare_image_plan, record_ocr_result, write_image_report"
     if worker.count(helper_import) != 1:
         raise RuntimeError("Image helper embedding marker missing")

@@ -20,6 +20,11 @@ import zipfile
 
 from PIL import Image, ImageOps
 
+try:
+    from vector_fonts import prepare_wmf
+except ImportError:
+    from kaggle_ocr.vector_fonts import prepare_wmf
+
 
 _W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
 _R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
@@ -258,7 +263,27 @@ def render_vectors(records, output_dir, allow_install=True):
         group = entries[offset:offset + 32]
         batch = output_dir / ("batch-" + str(offset))
         batch.mkdir(exist_ok=True)
-        sources = [Path(items[0]["source_path"]) for items in group]
+        sources, active = [], []
+        for items in group:
+            source = Path(items[0]["source_path"])
+            if source.suffix.lower() == '.wmf':
+                try:
+                    data, kind = prepare_wmf(source.read_bytes())
+                    repaired = batch / (items[0]['source_sha256'] + '.' + kind)
+                    repaired.write_bytes(data)
+                    if kind == 'png':
+                        for record in items:
+                            converted[record['id']] = repaired
+                        continue
+                    source = repaired
+                except (ValueError, OSError) as exc:
+                    for record in items:
+                        errors[record['id']] = str(exc)
+                    continue
+            sources.append(source)
+            active.append(items)
+        if not sources:
+            continue
         print(f"LibreOffice Draw: đang chuyển ảnh vector {offset + 1}–{offset + len(group)}/{len(entries)}…", flush=True)
         profile = (batch / "profile").resolve().as_uri()
         export_filter = 'png:draw_png_Export:{"PixelWidth":{"type":"long","value":"1600"},"Translucent":{"type":"boolean","value":"false"}}'
@@ -272,7 +297,7 @@ def render_vectors(records, output_dir, allow_install=True):
             (batch / "conversion.log").write_text(detail, encoding="utf-8")
         except (subprocess.SubprocessError, OSError) as error:
             detail = str(error)
-        for items, source in zip(group, sources):
+        for items, source in zip(active, sources):
             raster = batch / (source.stem + ".png")
             for record in items:
                 if raster.is_file():

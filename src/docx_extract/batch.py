@@ -45,6 +45,14 @@ def clean_docx_batch(paths, client):
         local_results = {oid: received.get(remote_id, {"latex": None, "error": "OCR batch thiếu id"})
                          for oid, remote_id, _, _ in mappings}
         ctx.apply_ocr_results(local_results)
+        entries = {entry['id']: entry for entry in ctx.manifest}
+        for oid, remote_id, _, _ in mappings:
+            png = getattr(client, 'input_images', {}).get(remote_id)
+            if png:
+                filename = oid + '.ocr-input.png'
+                ctx.written[filename] = png
+                entries[oid]['ocr_input'] = filename
+                entries[oid]['ocr_input_settings'] = dict(client.input_settings)
         ctx.ocr_stats.update(
             ocr_total=len(mappings),
             unique=len({(ext, hashlib.sha256(data).digest()) for _, _, data, ext in mappings}),

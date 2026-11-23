@@ -242,6 +242,7 @@ def test_native_word_equation_remains_native_not_fake_image_ocr(tmp_path):
 
 
 def test_vector_cli_partial_failure_is_accounted(tmp_path, monkeypatch):
+    monkeypatch.setattr(images, 'prepare_wmf', lambda data: (data, 'wmf'))
     records = []
     for index in range(2):
         path = tmp_path / f"v{index}.wmf"
@@ -252,7 +253,8 @@ def test_vector_cli_partial_failure_is_accounted(tmp_path, monkeypatch):
     def fake_soffice(command, **kwargs):
         calls.append(command)
         output = Path(command[command.index("--outdir") + 1])
-        (output / "v0.png").write_bytes(png_formula())
+        first_source = Path(command[command.index('--outdir') + 2])
+        (output / (first_source.stem + '.png')).write_bytes(png_formula())
         return SimpleNamespace(stdout="converted first image", stderr="second image failed")
     monkeypatch.setattr(images.subprocess, "run", fake_soffice)
     converted, errors = images.render_vectors(records, tmp_path / "converted", allow_install=False)
@@ -262,6 +264,7 @@ def test_vector_cli_partial_failure_is_accounted(tmp_path, monkeypatch):
 
 
 def test_vector_install_exposes_logs_and_never_waits_for_interactive_input(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(images, 'prepare_wmf', lambda data: (data, 'wmf'))
     source = tmp_path / "formula.wmf"
     source.write_bytes(b"vector fixture; this test does not install system packages")
     records = [dict(id="formula", source_path=str(source), source_sha256="fixture")]
@@ -280,7 +283,7 @@ def test_vector_install_exposes_logs_and_never_waits_for_interactive_input(tmp_p
             installed = True
         if "--convert-to" in command:
             folder = Path(command[command.index("--outdir") + 1])
-            (folder / "formula.png").write_bytes(png_formula())
+            (folder / (Path(command[-1]).stem + '.png')).write_bytes(png_formula())
         return SimpleNamespace(stdout="converted fixture", stderr="", returncode=0)
     monkeypatch.setattr(images.subprocess, "run", run)
     converted, errors = images.render_vectors(records, tmp_path / "converted")

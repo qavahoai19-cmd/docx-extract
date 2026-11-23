@@ -7,6 +7,7 @@ LaTeX bằng DeepSeek-OCR-2. Khớp đúng contract của docx_extract.mathocr.
 Cách chạy trong Colab — xem README.md để có đầy đủ các cell.
 """
 import io
+import base64
 import hashlib
 import hmac
 import json
@@ -27,6 +28,7 @@ from PIL import Image, ImageDraw
 from ocr_logic import (adapt_infer_dtype, build_soffice_batch_cmd, crop_whitespace,
                        ext_of, needs_conversion, select_model_dtype)
 from ocr_validation import validation_error
+from vector_fonts import prepare_wmf
 
 app = FastAPI(title="docx-extract mathtype OCR server")
 
@@ -47,7 +49,7 @@ _inference_batch_size = max(1, min(8, int(os.getenv("DOCX_OCR_INFERENCE_BATCH_SI
 _batch_verified = False
 _batch_validation_error = ""
 _batch_validation_timings = {}
-_image_size = int(os.getenv("DOCX_OCR_IMAGE_SIZE", "768"))
+_image_size = int(os.getenv("DOCX_OCR_IMAGE_SIZE", "1024"))
 if _image_size not in {768, 1024}:
     raise ValueError("DOCX_OCR_IMAGE_SIZE must be 768 or 1024")
 _prompt = "<image>\nOCR this formula to LaTeX."
@@ -158,7 +160,7 @@ def _infer_transformers(png_bytes: bytes) -> str:
 
 def _namespace():
     settings = [_MODEL_NAME, _resolved_revision, _backend, _image_size, _prompt,
-                "crop-v2", str(_model_dtype), os.getenv("DOCX_OCR_ATTENTION", "eager"),
+                "crop-v3-fonts", str(_model_dtype), os.getenv("DOCX_OCR_ATTENTION", "eager"),
                 os.getenv("DOCX_OCR_MAX_TOKENS", "1024"), _inference_batch_size,
                 os.getenv("DOCX_OCR_BATCH_MAX_TOKENS", "8192")]
     return hashlib.sha256(json.dumps(settings).encode()).hexdigest()
@@ -170,6 +172,15 @@ def _prepare_images(items):
         vectors = []
         for index, (oid, data, ext) in enumerate(items):
             if needs_conversion(ext):
+                if ext.lower() == 'wmf':
+                    try:
+                        data, ext = prepare_wmf(data)
+                        if ext == 'png':
+                            prepared[oid] = _crop_whitespace(data)
+                            continue
+                    except (ValueError, OSError) as exc:
+                        errors[oid] = str(exc)
+                        continue
                 source = Path(tmp) / f"formula_{index}.{ext}"
                 source.write_bytes(data)
                 vectors.append((oid, source))
@@ -291,7 +302,7 @@ def _cache_put(key, latex, enabled):
                 _result_cache.popitem(last=False)
 
 
-def recognize_items(items, use_cache=True):
+def recognize_items(items, use_cache=True, debug=False):
     started = perf_counter()
     source_groups, results, pending, source_keys = {}, {}, [], {}
     for oid, data, ext in items:
@@ -353,9 +364,14 @@ def recognize_items(items, use_cache=True):
                 for original_id, _, _ in source_groups[source_keys[oid]]:
                     results[original_id] = {"id": original_id, **result}
         infer_s = perf_counter() - inference_start
-    return {"results": [results[oid] for oid, _, _ in items],
-            "timings": {"prepare_s": prepare_s, "queue_s": queue_s,
-                        "infer_s": infer_s, "total_s": perf_counter()-started}}
+    payload = {"results": [results[oid] for oid, _, _ in items],
+               "timings": {"prepare_s": prepare_s, "queue_s": queue_s,
+                           "infer_s": infer_s, "total_s": perf_counter()-started}}
+    if debug:
+        payload['ocr_inputs'] = {oid: base64.b64encode(png).decode('ascii') for oid, png in prepared.items()}
+        payload['ocr_input_settings'] = {'image_size': _image_size, 'prompt': _prompt,
+                                          'preprocessing': 'crop-v3-fonts'}
+    return payload
 
 
 def run_ocr(png_bytes: bytes) -> str:
@@ -414,14 +430,18 @@ async def debug_png(file: UploadFile = File(...)):
 
 
 @app.post("/ocr")
-async def ocr(file: UploadFile = File(...), x_ocr_cache: str = Header("on")):
+async def ocr(file: UploadFile = File(...), x_ocr_cache: str = Header("on"), x_ocr_debug: str = Header("off")):
     data = await file.read()
     if not data:
         raise HTTPException(status_code=400, detail="empty file")
     ext = ext_of(file.filename or "")
     try:
-        result = await run_in_threadpool(recognize_items, [("formula", data, ext)], x_ocr_cache.lower() != "off")
-        return JSONResponse(result["results"][0])
+        payload = await run_in_threadpool(recognize_items, [("formula", data, ext)], x_ocr_cache.lower() != "off", x_ocr_debug.lower() == 'on')
+        result = payload['results'][0]
+        if 'ocr_inputs' in payload:
+            result['ocr_input'] = payload['ocr_inputs'].get('formula')
+            result['ocr_input_settings'] = payload['ocr_input_settings']
+        return JSONResponse(result)
     except Exception as exc:
         # Lỗi OCR/convert -> vẫn trả 200 với latex rỗng, để client (docx-extract)
         # coi như "không OCR được" (cảnh báo, giữ ảnh gốc) thay vì raise 500 phá batch.
@@ -429,7 +449,7 @@ async def ocr(file: UploadFile = File(...), x_ocr_cache: str = Header("on")):
 
 
 @app.post("/ocr/batch")
-async def ocr_batch(files: list[UploadFile] = File(...), ids: str = Form(...), x_ocr_cache: str = Header("on")):
+async def ocr_batch(files: list[UploadFile] = File(...), ids: str = Form(...), x_ocr_cache: str = Header("on"), x_ocr_debug: str = Header("off")):
     try:
         item_ids = json.loads(ids)
     except ValueError:
@@ -439,4 +459,4 @@ async def ocr_batch(files: list[UploadFile] = File(...), ids: str = Form(...), x
             or len(set(item_ids)) != len(item_ids)):
         raise HTTPException(status_code=400, detail="ids must be unique and match 1..32 files")
     items = [(oid, await file.read(), ext_of(file.filename or "")) for oid, file in zip(item_ids, files)]
-    return await run_in_threadpool(recognize_items, items, x_ocr_cache.lower() != "off")
+    return await run_in_threadpool(recognize_items, items, x_ocr_cache.lower() != "off", x_ocr_debug.lower() == 'on')

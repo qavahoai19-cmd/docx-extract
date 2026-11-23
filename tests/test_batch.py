@@ -80,3 +80,24 @@ def test_bad_document_and_missing_ocr_result_do_not_destroy_other_results(tmp_pa
     assert documents[0].context.latex == {"mathtype_1": "latex:d1__mathtype_1"}
     assert documents[0].context.ocr_stats["failures"] == 1
     assert documents[0].context.written["mathtype_2.wmf"] == b"two"
+
+
+def test_actual_ocr_input_png_is_preserved_for_duplicate_formulas(tmp_path):
+    import base64
+    png = b'\x89PNG\r\n\x1a\nfixture'
+    class DebugSession(Session):
+        def post(self, url, **kwargs):
+            assert kwargs['headers']['X-OCR-Debug'] == 'on'
+            payload = super().post(url, **kwargs).json()
+            payload['ocr_inputs'] = {row['id']: base64.b64encode(png).decode() for row in payload['results']}
+            payload['ocr_input_settings'] = {'image_size': 1024}
+            return self.response(payload)
+    paths = [make_document(tmp_path / 'a.docx', [b'shared']),
+             make_document(tmp_path / 'b.docx', [b'shared', b'other'])]
+    with OCRClient(endpoint='http://test/ocr', session=DebugSession(), cache_path='off',
+                   prepare=False, debug_images=True) as client:
+        documents, _ = clean_docx_batch(paths, client)
+    for document in documents:
+        ctx = document.context
+        assert ctx.written['mathtype_1.ocr-input.png'] == png
+        assert ctx.manifest[0]['ocr_input_settings']['image_size'] == 1024

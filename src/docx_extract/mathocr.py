@@ -1,6 +1,7 @@
 """Batched HTTP OCR, exact-image deduplication and versioned success cache."""
 
 import hashlib
+import base64
 import json
 import os
 from pathlib import Path
@@ -35,7 +36,7 @@ class OCRClient:
     """
 
     def __init__(self, *, endpoint=None, cache_path=None, batch_size=None,
-                 prepare=None, session=None, progress=None, prepare_workers=None, use_cache=True):
+                 prepare=None, session=None, progress=None, prepare_workers=None, use_cache=True, debug_images=False):
         self.endpoint = endpoint if endpoint is not None else os.getenv("DOCX_EXTRACT_OCR_ENDPOINT", "")
         self.timeout = max(1, float(os.getenv("DOCX_EXTRACT_OCR_TIMEOUT", "30")))
         self.batch_size = max(1, min(32, int(batch_size or os.getenv("DOCX_EXTRACT_OCR_BATCH_SIZE", "8"))))
@@ -45,6 +46,9 @@ class OCRClient:
         self.progress = progress
         self.session = session if session is not None else requests.Session()
         self.headers = {}
+        self.input_images, self.input_settings = {}, {}
+        if debug_images:
+            self.headers['X-OCR-Debug'] = 'on'
         if not use_cache:
             self.headers["X-OCR-Cache"] = "off"
         key = os.getenv("DOCX_EXTRACT_OCR_API_KEY")
@@ -98,7 +102,7 @@ class OCRClient:
     def _key(self, data, ext):
         scope = [self.endpoint, self.auth_scope, self.namespace,
                  os.getenv("DOCX_EXTRACT_OCR_CACHE_VERSION", "1"),
-                 VALIDATION_VERSION, "raster-v1", self.prepare, os.getenv("DOCX_EXTRACT_OCR_RASTER_DPI", "300"), ext]
+                 VALIDATION_VERSION, "raster-v2-fonts", self.prepare, os.getenv("DOCX_EXTRACT_OCR_RASTER_DPI", "300"), ext]
         return hashlib.sha256(json.dumps(scope, sort_keys=True).encode() + data).hexdigest()
 
     def _get_cached(self, key):
@@ -133,6 +137,18 @@ class OCRClient:
         error = str(payload.get("error") or validation_error(latex))
         return {"latex": None if error else latex, "error": error}
 
+    def _remember_input(self, oid, encoded, settings):
+        if self.headers.get('X-OCR-Debug') != 'on' or not isinstance(encoded, str) or len(encoded) > 12_000_000:
+            return
+        try:
+            png = base64.b64decode(encoded, validate=True)
+        except ValueError:
+            return
+        if png.startswith(b'\x89PNG\r\n\x1a\n'):
+            self.input_images[oid] = png
+            if isinstance(settings, dict):
+                self.input_settings = settings
+
     def _send(self, chunk):
         if self.batch_supported and len(chunk) > 1:
             response = self._post(
@@ -151,6 +167,9 @@ class OCRClient:
                     raise ValueError("OCR batch response thiếu results")
                 mapped = {}
                 expected = {item[0] for item in chunk}
+                for oid, encoded in payload.get('ocr_inputs', {}).items():
+                    if oid in expected:
+                        self._remember_input(oid, encoded, payload.get('ocr_input_settings', {}))
                 for result in results:
                     oid = result.get("id")
                     if oid not in expected or oid in mapped:
@@ -168,7 +187,9 @@ class OCRClient:
             try:
                 response = self._post(self.endpoint, files={"file": (f"formula.{ext}", data)}, timeout=self.timeout)
                 response.raise_for_status()
-                mapped[oid] = self._result(response.json())
+                payload = response.json()
+                mapped[oid] = self._result(payload)
+                self._remember_input(oid, payload.get('ocr_input'), payload.get('ocr_input_settings', {}))
             except (requests.RequestException, ValueError, TypeError, AttributeError) as exc:
                 self.transport_error = f"OCR request thất bại: {exc}"
                 mapped[oid] = {"latex": None, "error": self.transport_error}
@@ -242,6 +263,9 @@ class OCRClient:
             cached = []
             for key, group in selected:
                 result = received[group[0][0]]
+                if group[0][0] in self.input_images:
+                    for oid, _, _ in group:
+                        self.input_images[oid] = self.input_images[group[0][0]]
                 output.update({oid: dict(result) for oid, _, _ in group})
                 if result["latex"]:
                     cached.append((key, result["latex"]))

@@ -103,7 +103,7 @@ def process_documents(documents, work_root, endpoint, progress=None, *, use_cach
         rows.append({"file": name, "output": label})
         sources.append(source)
     with OCRClient(endpoint=endpoint, cache_path=root/"cache"/"ocr.sqlite3",
-                   batch_size=32, progress=progress, use_cache=use_cache) as client:
+                   batch_size=32, progress=progress, use_cache=use_cache, debug_images=True) as client:
         extracted, batch_metrics = clean_docx_batch(sources, client)
     for row, document in zip(rows, extracted):
         started = perf_counter()
@@ -217,7 +217,7 @@ def show_upload_ui(work_root, endpoint, previous=None, *, input_root=None):
                 for row in rows:
                     stats = row.get("ocr", {})
                     detail = row.get("error") or (f"{stats.get('total',0)} công thức: {stats.get('omml_total',0)} Word Equation, "
-                        f"{stats.get('mathtype_total',0)} MathType; {stats.get('failures',0)} công thức cần kiểm tra, "
+                        f"{stats.get('mathtype_total',0)} MathType; {stats.get('wmf_direct',0)} số WMF đọc trực tiếp; {stats.get('failures',0)} công thức cần kiểm tra, "
                         f"{stats.get('missing_assets',0)} tài nguyên thiếu")
                     print(f"{row['file']}: {detail}", flush=True)
                 total = sum(row.get("ocr", {}).get("total", 0) for row in rows)

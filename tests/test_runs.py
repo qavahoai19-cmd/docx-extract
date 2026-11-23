@@ -172,3 +172,10 @@ def test_underlined_tab_is_preserved_as_a_fill_in_blank():
     inner = (_run('The city’s') + '<w:r><w:rPr><w:u w:val="single"/></w:rPr><w:tab/></w:r>'
              + _run('needs upgrading.'))
     assert render_paragraph(_p(inner), None) == 'The city’s[!u:$    $]needs upgrading.'
+
+
+def test_symbol_private_use_text_decodes_omega_only_for_symbol_fonts():
+    template = '<w:r><w:rPr><w:rFonts w:ascii="{}"/></w:rPr><w:t>\uf077</w:t></w:r>'
+    assert render_paragraph(_p(template.format('Symbol')), None) == '\u03c9'
+    assert render_paragraph(_p(template.format('Euclid Symbol')), None) == '\u03c9'
+    assert render_paragraph(_p(template.format('Arial')), None) == '\uf077'

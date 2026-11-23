@@ -31,6 +31,8 @@ def build(owner, revision=MODEL_REVISION, datasets=()):
     # Keep the server runnable without installing the client package.
     (ROOT/"colab_ocr_server/ocr_validation.py").write_bytes(
         (ROOT/"src/docx_extract/ocr_validation.py").read_bytes())
+    for directory in (HERE, ROOT/"colab_ocr_server"):
+        (directory/"vector_fonts.py").write_bytes((ROOT/"src/docx_extract/vector_fonts.py").read_bytes())
     buffer=io.BytesIO()
     with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
         for folder in (ROOT/"src/docx_extract",ROOT/"colab_ocr_server"):
@@ -89,7 +91,7 @@ RUN_BENCHMARK = False
 RUN_HEAVY_BENCHMARK = False
 HEAVY_DOCX_PATH = ""  # Đường dẫn DOCX được gắn riêng trong /kaggle/input
 ENABLE_TUNNEL = False
-OCR_GPU_BATCH_SIZE = 4  # Startup checks parity; falls back to 1 if unsupported.
+OCR_GPU_BATCH_SIZE = 2  # 1024px quality mode; startup verifies parity and speed.
 MODEL_REVISION = {revision!r}
 WORK_ROOT = Path("/kaggle/working/docx-ocr")
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
@@ -110,8 +112,18 @@ if capability[0]<7:
     cells.append(cell("code",'''packages=["fastapi","uvicorn","python-multipart","Pillow>=10.1","requests","lxml",
           "transformers==4.46.3","tokenizers==0.20.3","accelerate","einops","addict","easydict","ipywidgets>=8,<9","olefile>=0.47"]
 subprocess.run([sys.executable,"-m","pip","install","-q",*packages],check=True)
-subprocess.run(["apt-get","update","-qq"],check=True)
-subprocess.run(["apt-get","install","-y","-qq","libreoffice-core","libreoffice-impress"],check=True)
+apt_options=["-o","Acquire::Retries=1","-o","Acquire::http::Timeout=30",
+             "-o","Acquire::https::Timeout=30","-o","DPkg::Lock::Timeout=60"]
+print("Cài LibreOffice và font toán; tiến trình apt hiển thị bên dưới.",flush=True)
+subprocess.run(["apt-get",*apt_options,"update"],check=True,timeout=180)
+subprocess.run(["apt-get",*apt_options,"install","-y","--no-install-recommends",
+                "libreoffice-core","libreoffice-impress","fonts-dejavu-core",
+                "fonts-liberation2","fonts-urw-base35","fonts-opensymbol"],check=True,timeout=480)
+font_config=Path.home()/".config/fontconfig/conf.d/99-docx-symbol.conf"
+font_config.parent.mkdir(parents=True,exist_ok=True)
+font_config.write_text('<fontconfig><alias><family>Symbol</family><prefer><family>Standard Symbols PS</family></prefer></alias></fontconfig>')
+subprocess.run(["fc-cache","-f"],check=True,timeout=60)
+subprocess.run(["fc-match","Symbol"],check=True,timeout=10)
 print("Dependencies ready; Torch was not replaced.")
 ''',"install"))
     cells.append(cell("code",f'''import base64, hashlib, io, zipfile, importlib
@@ -157,7 +169,7 @@ environment=os.environ.copy()
 environment.update(DOCX_OCR_BACKEND="transformers",DOCX_OCR_DTYPE="auto",
                    DOCX_OCR_INFERENCE_BATCH_SIZE=str(OCR_GPU_BATCH_SIZE),
                    DOCX_OCR_ATTENTION="eager",DOCX_OCR_WARMUP="1",
-                   DOCX_OCR_IMAGE_SIZE="768",DOCX_OCR_MODEL_REVISION=MODEL_REVISION,
+                   DOCX_OCR_IMAGE_SIZE="1024",DOCX_OCR_MODEL_REVISION=MODEL_REVISION,
                    PYTHONPATH=str(WORK_ROOT/"src"))
 if server_key: environment["DOCX_OCR_API_KEY"]=server_key
 log_path=Path("/kaggle/working/ocr-server.log")

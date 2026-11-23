@@ -29,7 +29,8 @@ def build_soffice_cmd(input_path: str, out_dir: str) -> list[str]:
 def build_soffice_batch_cmd(input_paths, out_dir, profile_dir):
     from pathlib import Path
     return ["soffice", "-env:UserInstallation=" + Path(profile_dir).resolve().as_uri(),
-            "--headless", "--norestore", "--convert-to", "png",
+            "--headless", "--norestore", "--convert-to",
+            'png:draw_png_Export:{"PixelWidth":{"type":"long","value":"1600"},"Translucent":{"type":"boolean","value":"false"}}',
             "--outdir", out_dir, *input_paths]
 
 
