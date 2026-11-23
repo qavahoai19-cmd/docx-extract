@@ -18,9 +18,9 @@ def test_original_letter_numbering_labels_formulas_without_replacing_them():
     assert render_paragraph(paragraph('x'), context) == 'A. [!m:$mathml_1$]'
     assert render_paragraph(paragraph('y'), context) == 'B. [!m:$mathml_2$]'
     assert context.written['mathml_1.xml'] and not context.latex
-    # Default OCR extraction keeps its previous markup convention.
+    # OCR extraction must preserve the same visible Word numbering.
     context.preserve_formulas = False
-    assert render_paragraph(paragraph('z'), context) == '[!m:$mathml_3$]'
+    assert render_paragraph(paragraph('z'), context) == 'C. [!m:$mathml_3$]'
 
 
 def test_numbering_start_override_is_honored():
@@ -49,3 +49,20 @@ def test_lowercase_sentence_labels_are_preserved_for_arrangement_questions():
         <w:r><w:t>However, the fast pace can be overwhelming.</w:t></w:r></w:p>''')
     assert render_paragraph(paragraph, context) == 'a. However, the fast pace can be overwhelming.'
     assert render_paragraph(paragraph, context).startswith('b. ')
+
+
+def test_normal_ocr_path_preserves_generated_answer_labels_end_to_end(tmp_path):
+    import zipfile
+    from docx_extract.assemble import clean_docx
+    path = tmp_path / 'answers.docx'
+    numbering = f'''<w:numbering xmlns:w="{W}"><w:abstractNum w:abstractNumId="1"><w:lvl w:ilvl="0">
+        <w:start w:val="1"/><w:numFmt w:val="upperLetter"/><w:lvlText w:val="%1."/></w:lvl></w:abstractNum>
+        <w:num w:numId="3"><w:abstractNumId w:val="1"/></w:num></w:numbering>'''
+    paragraphs = ''.join(f'''<w:p><w:pPr><w:numPr><w:numId w:val="3"/></w:numPr></w:pPr><w:r>
+        {'<w:rPr><w:highlight w:val="yellow"/></w:rPr>' if i == 1 else ''}
+        <w:t>Answer {i + 1}</w:t></w:r></w:p>''' for i in range(4))
+    with zipfile.ZipFile(path, 'w') as archive:
+        archive.writestr('word/document.xml', f'<w:document xmlns:w="{W}"><w:body>{paragraphs}</w:body></w:document>')
+        archive.writestr('word/numbering.xml', numbering)
+    markup, _ = clean_docx(path)
+    assert markup.splitlines() == ['A. Answer 1', '*B. Answer 2', 'C. Answer 3', 'D. Answer 4']

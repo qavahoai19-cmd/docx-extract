@@ -40,6 +40,28 @@ def test_crop_uses_ink_not_white_canvas():
         assert image.size == (140,90)
 
 
+def test_invalid_nonempty_model_output_is_not_cached(client, monkeypatch):
+    calls = []
+    def infer(data):
+        calls.append(data)
+        return r"\[\sqrt{2}\frac{x-4}{}\]"
+    monkeypatch.setattr(server, "_infer_transformers", infer)
+    for _ in range(2):
+        result = client.post("/ocr", files={"file": ("one.png", png())}).json()
+        assert not result["latex"] and "empty" in result["error"]
+    assert len(calls) == 2 and not server._result_cache
+
+
+def test_invalid_existing_server_cache_is_discarded(client, monkeypatch):
+    import hashlib
+    image = png()
+    key = ("source", "png", hashlib.sha256(image).digest())
+    server._result_cache[key] = r"\frac{x}{}"
+    result = client.post("/ocr", files={"file": ("one.png", image)}).json()
+    assert result["latex"] == "x^2"
+    assert server._result_cache[key] == "x^2"
+
+
 def test_transparent_background_is_flattened_to_white():
     image = Image.new("RGBA", (100,100), (0,0,0,0))
     ImageDraw.Draw(image).rectangle((45,45,54,54), fill="black")

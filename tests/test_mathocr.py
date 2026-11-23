@@ -39,6 +39,44 @@ def test_image_to_latex_returns_none_when_endpoint_not_configured(monkeypatch):
     assert mathocr.image_to_latex(b"WMFDATA", "wmf") is None
 
 
+@pytest.mark.parametrize("payload", [
+    {"latex": r"\[\sqrt{2}\frac{x-4}{}\]"},
+    {"latex": "x", "error": "token limit reached"},
+])
+def test_invalid_nonempty_output_is_rejected_and_never_cached(tmp_path, payload):
+    session = BatchSession()
+    session.post = lambda *args, **kwargs: _FakeResponse(payload)
+    with mathocr.OCRClient(endpoint="http://test/ocr", session=session,
+                           cache_path=tmp_path / "cache.sqlite3") as client:
+        for _ in range(2):
+            result = client.recognize([("formula", b"image", "png")])["formula"]
+            assert result["latex"] is None and result["error"]
+        assert client.stats["http_requests"] == 2
+        assert client.stats["cache_hits"] == 0
+        assert client.db.execute("SELECT COUNT(*) FROM ocr").fetchone()[0] == 0
+
+
+def test_cache_bypass_also_disables_server_cache(tmp_path):
+    session = BatchSession()
+    with mathocr.OCRClient(endpoint="http://test/ocr", session=session, use_cache=False,
+                           cache_path=tmp_path / "cache.sqlite3") as client:
+        for _ in range(2):
+            assert client.recognize([("formula", b"image", "png")])["formula"]["latex"]
+        assert client.db is None and len(session.posts) == 2
+        assert all(kwargs["headers"]["X-OCR-Cache"] == "off" for _, kwargs in session.posts)
+
+
+def test_invalid_existing_cache_entry_is_not_reused(tmp_path):
+    session = BatchSession()
+    with mathocr.OCRClient(endpoint="http://test/ocr", session=session,
+                           cache_path=tmp_path / "cache.sqlite3") as client:
+        client._discover()
+        client._save_cached([(client._key(b"image", "png"), r"\frac{x}{}")])
+        result = client.recognize([("formula", b"image", "png")])
+        assert result["formula"]["latex"] == "x^2"
+        assert len(session.posts) == 1 and client.stats["cache_hits"] == 0
+
+
 class BatchSession:
     def __init__(self, *, namespace="model-1", failed=False, legacy=False):
         self.namespace, self.failed, self.legacy = namespace, failed, legacy

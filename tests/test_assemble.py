@@ -31,7 +31,7 @@ def test_clean_docx_no_anchor_emits_full_body_with_warning(monkeypatch):
     body = etree.fromstring(body_xml)
     doc = Document(body=body, rels={}, assets={})
 
-    monkeypatch.setattr(assemble, "load", lambda path: doc)
+    monkeypatch.setattr(assemble, "load", lambda path, **kwargs: doc)
 
     markup, ctx = assemble.clean_docx("dummy.docx")
     assert markup.strip() != ""
@@ -53,7 +53,7 @@ def test_reading_passage_and_data_table_before_first_question_are_preserved(monk
         '<w:p><w:r><w:t>Câu 1: Dựa vào ngữ liệu trên.</w:t></w:r></w:p>'
         '</w:body>'
     )
-    monkeypatch.setattr(assemble, "load", lambda _: Document(body, {}, {}))
+    monkeypatch.setattr(assemble, "load", lambda _, **kwargs: Document(body, {}, {}))
     markup, _ = assemble.extract_docx("unused.docx")
     assert markup.splitlines() == [
         "Đọc ngữ liệu sau và trả lời câu hỏi:",

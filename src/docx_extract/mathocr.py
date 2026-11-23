@@ -12,6 +12,7 @@ from urllib.parse import urlsplit, urlunsplit
 import requests
 
 from .raster import prepare_image
+from .ocr_validation import VALIDATION_VERSION, validation_error
 
 
 def _route(endpoint, suffix):
@@ -34,7 +35,7 @@ class OCRClient:
     """
 
     def __init__(self, *, endpoint=None, cache_path=None, batch_size=None,
-                 prepare=None, session=None, progress=None, prepare_workers=None):
+                 prepare=None, session=None, progress=None, prepare_workers=None, use_cache=True):
         self.endpoint = endpoint if endpoint is not None else os.getenv("DOCX_EXTRACT_OCR_ENDPOINT", "")
         self.timeout = max(1, float(os.getenv("DOCX_EXTRACT_OCR_TIMEOUT", "30")))
         self.batch_size = max(1, min(32, int(batch_size or os.getenv("DOCX_EXTRACT_OCR_BATCH_SIZE", "8"))))
@@ -44,12 +45,14 @@ class OCRClient:
         self.progress = progress
         self.session = session if session is not None else requests.Session()
         self.headers = {}
+        if not use_cache:
+            self.headers["X-OCR-Cache"] = "off"
         key = os.getenv("DOCX_EXTRACT_OCR_API_KEY")
         if key:
             self.headers["Authorization"] = f"Bearer {key}"
         self.auth_scope = hashlib.sha256((key or "").encode()).hexdigest()
         configured = cache_path if cache_path is not None else os.getenv("DOCX_EXTRACT_OCR_CACHE", str(_cache_path()))
-        self.cache_path = None if str(configured).lower() in {"off", "0", "false"} else Path(configured)
+        self.cache_path = None if not use_cache or str(configured).lower() in {"off", "0", "false"} else Path(configured)
         self.db = None
         self.namespace = None
         self.batch_supported = True
@@ -95,14 +98,14 @@ class OCRClient:
     def _key(self, data, ext):
         scope = [self.endpoint, self.auth_scope, self.namespace,
                  os.getenv("DOCX_EXTRACT_OCR_CACHE_VERSION", "1"),
-                 "raster-v1", self.prepare, os.getenv("DOCX_EXTRACT_OCR_RASTER_DPI", "300"), ext]
+                 VALIDATION_VERSION, "raster-v1", self.prepare, os.getenv("DOCX_EXTRACT_OCR_RASTER_DPI", "300"), ext]
         return hashlib.sha256(json.dumps(scope, sort_keys=True).encode() + data).hexdigest()
 
     def _get_cached(self, key):
         if self.db is not None:
             try:
                 row = self.db.execute("SELECT latex FROM ocr WHERE key=?", (key,)).fetchone()
-                return row[0] if row else None
+                return row[0] if row and not validation_error(row[0]) else None
             except sqlite3.Error:
                 self.stats["cache_errors"] += 1
         return None
@@ -127,7 +130,8 @@ class OCRClient:
     def _result(payload):
         latex = payload.get("latex")
         latex = latex.strip() if isinstance(latex, str) and latex.strip() else None
-        return {"latex": latex, "error": "" if latex else str(payload.get("error") or "OCR không trả LaTeX")}
+        error = str(payload.get("error") or validation_error(latex))
+        return {"latex": None if error else latex, "error": error}
 
     def _send(self, chunk):
         if self.batch_supported and len(chunk) > 1:

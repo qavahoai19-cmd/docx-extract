@@ -37,6 +37,8 @@ GPU chỉ cần cho phần **DeepSeek-OCR-2**. Đây là model duy nhất đư�
 
 Mở **Lưu kết quả ZIP (tùy chọn)** khi cần lưu markup, manifest, sidecar và số liệu. Khung xem nằm riêng ngoài vùng log của callback. Thời gian dựng bản xem/chuyển ảnh là bước riêng sau đọc Word + OCR + tạo ZIP. Bản xem không sửa LaTeX OCR hay bảo đảm nội dung/đáp án hoàn toàn đúng.
 
+Nhãn A/B/C/D do Word tự đánh số được giữ cả trong luồng OCR; đáp án tô màu vẫn được đánh dấu `*`. Bật **Đọc lại không dùng cache** trước khi bấm **Đọc đề** để bỏ qua cả cache SQLite của client và cache RAM trên server. Bình thường cache vẫn hoạt động. Bản mới đổi khóa cache để không dùng lại kết quả từ trước khi có kiểm tra cấu trúc. Kết quả có lỗi server, thiếu ngoặc hoặc phân số/căn thiếu đối số được báo cần kiểm tra và giữ ảnh gốc, không lưu cache. Kiểm tra này không phát hiện được mọi lỗi nhận dạng có LaTeX hợp lệ, chẳng hạn đảo dấu `≤` thành `≥`.
+
 Bản sửa OMML phân biệt vector/dấu mũ, giữ dấu gạch trên/dưới, mũi tên phản ứng và ngoặc vô hình; hỗ trợ hệ phương trình, ma trận và nhiều dòng. Cấu trúc chưa hỗ trợ giữ XML, ghi `error`/`review_required` trong manifest và đưa tài liệu sang `needs_review`. Thống kê `total` gồm Word Equation và MathType; `ocr_total` là số công thức thực sự thuộc luồng OCR. Không coi LaTeX khác rỗng là bằng chứng model đọc đúng ngữ nghĩa.
 
 Notebook được sinh từ code hiện có trong project, kèm bộ xem hiện tại; ô giải nén và giao diện in **mã phiên bản nguồn**. Mỗi bundle dùng thư mục nguồn riêng và nhập lại package, tránh module cũ trong kernel. Chỉ import lại file notebook đã sinh mới cập nhật code trên Kaggle; bản đã import không tự theo GitHub.

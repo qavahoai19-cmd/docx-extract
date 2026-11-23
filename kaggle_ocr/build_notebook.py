@@ -4,6 +4,7 @@ import base64
 import hashlib
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import textwrap
@@ -12,6 +13,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 HERE = Path(__file__).resolve().parent
 BASELINE = "1d70099e4070ee0995c3d15cc47312152d4559d2"
+MODEL_REVISION = "aaa02f3811945a91062062994c5c4a3f4c0af2b0"
 
 
 def cell(kind, source, name):
@@ -23,7 +25,12 @@ def cell(kind, source, name):
     return result
 
 
-def build(owner, revision, datasets=()):
+def build(owner, revision=MODEL_REVISION, datasets=()):
+    if not re.fullmatch(r"[0-9a-f]{40}", revision):
+        raise ValueError("Model revision must be a full 40-character Hugging Face model commit, not a project Git commit")
+    # Keep the server runnable without installing the client package.
+    (ROOT/"colab_ocr_server/ocr_validation.py").write_bytes(
+        (ROOT/"src/docx_extract/ocr_validation.py").read_bytes())
     buffer=io.BytesIO()
     with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
         for folder in (ROOT/"src/docx_extract",ROOT/"colab_ocr_server"):
@@ -280,7 +287,8 @@ exam_upload = show_upload_ui(WORK_ROOT, ENDPOINT, previous=globals().get("exam_u
 if __name__=="__main__":
     parser=argparse.ArgumentParser()
     parser.add_argument("--owner",default="YOUR_KAGGLE_USERNAME")
-    parser.add_argument("--revision",required=True)
+    parser.add_argument("--model-revision", "--revision", dest="revision", default=MODEL_REVISION,
+                        help="Full Hugging Face DeepSeek-OCR-2 commit; NOT the project's Git revision")
     parser.add_argument("--dataset", action="append", default=[])
     args=parser.parse_args()
     build(args.owner,args.revision,args.dataset)

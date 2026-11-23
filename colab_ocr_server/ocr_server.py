@@ -26,6 +26,7 @@ from PIL import Image, ImageDraw
 
 from ocr_logic import (adapt_infer_dtype, build_soffice_batch_cmd, crop_whitespace,
                        ext_of, needs_conversion, select_model_dtype)
+from ocr_validation import validation_error
 
 app = FastAPI(title="docx-extract mathtype OCR server")
 
@@ -273,13 +274,16 @@ def _cache_get(key, enabled):
         return None
     with _cache_lock:
         value = _result_cache.get(key)
+        if value and validation_error(value):
+            del _result_cache[key]
+            return None
         if value:
             _result_cache.move_to_end(key)
         return value
 
 
 def _cache_put(key, latex, enabled):
-    if enabled and latex:
+    if enabled and latex and not validation_error(latex):
         with _cache_lock:
             _result_cache[key] = latex
             _result_cache.move_to_end(key)
@@ -339,7 +343,9 @@ def recognize_items(items, use_cache=True):
                 except Exception as exc:
                     inferred.extend({"latex": "", "error": str(exc)} for _ in chunk)
         for (key, group), result in zip(missing, inferred):
-            if result.get("error"):
+            error = result.get("error") or validation_error(result.get("latex"))
+            if error:
+                result["error"] = error
                 result["latex"] = ""
             _cache_put(key, result["latex"], use_cache)
             for oid, _ in group:

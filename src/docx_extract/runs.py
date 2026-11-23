@@ -248,7 +248,7 @@ def emit(segments):
 
 def render_paragraph(p, ctx):
     segments = []
-    label = paragraph_label(p, ctx.numbering, ctx.numbering_counters) if ctx is not None and ctx.preserve_formulas else ''
+    label = paragraph_label(p, ctx.numbering, ctx.numbering_counters) if ctx is not None else ''
     if label:
         # The generated A–D label must participate in answer detection too:
         # its content can carry the highlight even though no w:t holds A–D.

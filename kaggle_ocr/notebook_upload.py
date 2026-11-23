@@ -86,7 +86,7 @@ def gather_documents(uploads):
     return documents
 
 
-def process_documents(documents, work_root, endpoint, progress=None):
+def process_documents(documents, work_root, endpoint, progress=None, *, use_cache=True):
     root = Path(work_root)
     job_name = "de-thi-" + datetime.now().strftime("%Y%m%d-%H%M%S-") + uuid4().hex[:6]
     job = root / "uploads" / job_name
@@ -103,7 +103,7 @@ def process_documents(documents, work_root, endpoint, progress=None):
         rows.append({"file": name, "output": label})
         sources.append(source)
     with OCRClient(endpoint=endpoint, cache_path=root/"cache"/"ocr.sqlite3",
-                   batch_size=32, progress=progress) as client:
+                   batch_size=32, progress=progress, use_cache=use_cache) as client:
         extracted, batch_metrics = clean_docx_batch(sources, client)
     for row, document in zip(rows, extracted):
         started = perf_counter()
@@ -133,7 +133,7 @@ def show_upload_ui(work_root, endpoint, previous=None, *, input_root=None):
     else:
         from notebook_preview import result_viewer
 
-    if (previous and previous.get("ui_version") == "inline-preview-v2"
+    if (previous and previous.get("ui_version") == "inline-preview-v3"
             and previous.get("work_root") == str(Path(work_root)) and previous.get("endpoint") == endpoint):
         display(previous["view"])
         return previous
@@ -145,6 +145,8 @@ def show_upload_ui(work_root, endpoint, previous=None, *, input_root=None):
     output = widgets.Output()
     preview_box = widgets.VBox()
     downloads = widgets.HTML()
+    fresh_read = widgets.Checkbox(value=False, description="Đọc lại không dùng cache", indent=False,
+                                 layout=widgets.Layout(width="auto"))
     state = {"archive": None, "rows": [], "preview": None}
     use_input = input_root is not None or str(work_root).startswith("/kaggle/")
     input_root = Path(input_root or "/kaggle/input")
@@ -183,6 +185,7 @@ def show_upload_ui(work_root, endpoint, previous=None, *, input_root=None):
         progress.description = f"{done}/{total}"
 
     def read_clicked(_):
+        fresh_read.disabled = True
         source_toggle.disabled = uploader.disabled = button.disabled = True
         input_picker.disabled = refresh.disabled = choose_all.disabled = True
         output.clear_output(wait=False)
@@ -203,7 +206,8 @@ def show_upload_ui(work_root, endpoint, previous=None, *, input_root=None):
                     uploads = list(upload_items(uploader.value))
                 documents = gather_documents(uploads)
                 print(f"Đang đọc {len(documents)} đề…", flush=True)
-                archive, rows = process_documents(documents, work_root, endpoint, update_progress)
+                archive, rows = process_documents(documents, work_root, endpoint, update_progress,
+                                                  use_cache=not fresh_read.value)
                 state.update(archive=archive, rows=rows)
                 with zipfile.ZipFile(archive) as result_zip:
                     batch_metrics = json.loads(result_zip.read("batch-metrics.json"))
@@ -236,6 +240,7 @@ def show_upload_ui(work_root, endpoint, previous=None, *, input_root=None):
                 print("Chưa đọc được đề:", exc)
             selected.value = "Chưa đọc được đề: " + html.escape(str(exc))
         finally:
+            fresh_read.disabled = False
             source_toggle.disabled = uploader.disabled = False
             input_picker.disabled = refresh.disabled = choose_all.disabled = False
             button.disabled = not bool(input_picker.value if use_input else uploader.value)
@@ -261,10 +266,10 @@ def show_upload_ui(work_root, endpoint, previous=None, *, input_root=None):
     change_source()
     source = [source_toggle, input_controls, uploader]
     view = widgets.VBox([widgets.HTML("<h3>Đọc đề mới</h3>"), *source,
-                        widgets.HBox([button]), selected, progress, preview_box, downloads, output])
+                        fresh_read, widgets.HBox([button]), selected, progress, preview_box, downloads, output])
     display(view)
     return {"uploader": uploader, "button": button, "output": output, "view": view,
             "preview_box": preview_box, "downloads": downloads, "state": state,
             "input_picker": input_picker, "refresh": refresh, "choose_all": choose_all,
             "work_root": str(Path(work_root)), "endpoint": endpoint,
-            "source_toggle": source_toggle, "ui_version": "inline-preview-v2"}
+            "source_toggle": source_toggle, "fresh_read": fresh_read, "ui_version": "inline-preview-v3"}

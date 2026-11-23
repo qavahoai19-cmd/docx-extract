@@ -82,7 +82,7 @@ def test_content_controls_and_nested_tables_reach_ocr_once(monkeypatch):
                    '</w:sdtContent></w:sdt>')
     ctx = context()
     document = Document(body=body, rels=ctx.rels, assets=ctx.assets)
-    monkeypatch.setattr("docx_extract.assemble.load", lambda _: document)
+    monkeypatch.setattr("docx_extract.assemble.load", lambda _, **kwargs: document)
 
     class OCR:
         stats = {"total": 2, "failures": 0}

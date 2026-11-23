@@ -22,9 +22,9 @@ _ANCHOR_RE = re.compile(r"^(PHẦN|Nhóm|Câu|Question)\b", re.IGNORECASE)
 def extract_docx(path: str, *, native_math=None, preserve_formulas=False):
     """Extract content and collect OCR jobs without contacting a model."""
     started = perf_counter()
-    doc = load(path, preserve_numbering=True) if preserve_formulas else load(path)
+    doc = load(path, preserve_numbering=True)
     ctx = Context(rels=doc.rels, assets=doc.assets, defer_ocr=True, native_math=native_math,
-                  preserve_formulas=preserve_formulas, numbering=doc.numbering if preserve_formulas else {})
+                  preserve_formulas=preserve_formulas, numbering=doc.numbering)
     all_lines = []
     anchor_idx = None
     for child in iter_blocks(doc.body):
