@@ -78,7 +78,7 @@ Cập nhật cả [ocr_server.py](./ocr_server.py) và [ocr_logic.py](./ocr_logi
 
 Client mới mặc định gom 8 ảnh/request, dùng lại HTTP Session, loại ảnh trùng và cache SQLite các kết quả thành công. Trên Windows, client chuyển WMF/EMF bằng GDI+ trước khi gửi để giảm số lần gọi LibreOffice phía server. Phần fallback LibreOffice cũng chuyển cả nhóm ảnh trong một lần chạy. `/health` trả fingerprint để cache tự thay đổi theo model và cấu hình.
 
-Backend mặc định `transformers` vẫn suy luận từng ảnh. Đặt `DOCX_OCR_BACKEND=vllm` trong môi trường GPU/CUDA/vLLM tương thích để dùng GPU batch thật. Tùy chọn này cần được đo trên phần cứng thực tế; không suy ra VRAM hoặc tốc độ chỉ từ kích thước file ảnh. Không thay đổi mặc định chất lượng ảnh 1024.
+Backend mặc định `transformers` dùng batch 4 và ảnh 768 để ưu tiên tốc độ. Server kiểm tra batch lúc khởi động; nếu đầu ra không khớp hoặc batch không nhanh hơn thì tự động quay về batch 1. Đặt `DOCX_OCR_BACKEND=vllm` trong môi trường GPU/CUDA/vLLM tương thích để dùng GPU batch thật. Tùy chọn này cần được đo trên phần cứng thực tế.
 
 **Cell lặp lại cùng một ảnh ở mục 3 sẽ dùng cache sau lần đầu.** Để đo thông lượng OCR, sử dụng các công thức khác nhau và phép đo trước/sau toàn bộ đề.
 
@@ -88,7 +88,7 @@ Xem [hướng dẫn chạy và benchmark](../docs/ocr-performance.md) để đo 
 
 UI Kaggle gom tất cả ảnh MathType của lô DOCX trước khi OCR, loại ảnh trùng giữa các đề rồi gửi tối đa 32 ảnh/request. Luồng này bắt buộc OCR ảnh, không dùng bộ đọc MathType native. Ảnh trên Windows được chuyển song song bằng tối đa 4 worker CPU; đổi bằng `DOCX_EXTRACT_OCR_PREPARE_WORKERS=1..8`. Server cũng loại ảnh trùng và đọc cache trước khi chuyển WMF/EMF.
 
-Server giữ mặc định suy luận từng ảnh. Để thử encoder và decoder theo lô với cùng model, đặt `DOCX_OCR_INFERENCE_BATCH_SIZE=4` trước khi khởi động Uvicorn. Cần có thêm [transformers_batch.py](./transformers_batch.py) cạnh server. Chế độ này chỉ dành cho ảnh cố định 768/1024, không crop; không thay weights, prompt hoặc dtype của model. `DOCX_OCR_BATCH_MAX_TOKENS` mặc định 8192; đầu ra thiếu EOS bị đánh dấu lỗi, không cache.
+Server dùng `DOCX_OCR_INFERENCE_BATCH_SIZE=4` và `DOCX_OCR_IMAGE_SIZE=768` mặc định. Có thể đặt batch về 1 hoặc ảnh 1024 nếu cần ưu tiên chất lượng. Chế độ batch chỉ dành cho ảnh cố định 768/1024, không crop; không thay weights, prompt hoặc dtype của model. `DOCX_OCR_BATCH_MAX_TOKENS` mặc định 8192; đầu ra thiếu EOS bị đánh dấu lỗi, không cache.
 
 Lúc khởi động, server so đầu ra serial và batch trên ảnh thử, đo thời gian sau lượt warm-up đầu tiên. Nếu kết quả khác, chạy chậm hơn hoặc phát sinh lỗi, server tự dùng batch size 1. `/health` ghi `inference_batch_size`, `batch_verified`, `batch_validation_error`, `batch_validation_timings`. Đây là kiểm tra khởi động, chưa thay cho benchmark độ đúng và thời gian trên đề thật.
 

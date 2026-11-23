@@ -130,7 +130,7 @@ environment=os.environ.copy()
 environment.update(DOCX_OCR_BACKEND="transformers",DOCX_OCR_DTYPE="auto",
                    DOCX_OCR_INFERENCE_BATCH_SIZE=str(OCR_GPU_BATCH_SIZE),
                    DOCX_OCR_ATTENTION="eager",DOCX_OCR_WARMUP="1",
-                   DOCX_OCR_IMAGE_SIZE="1024",DOCX_OCR_MODEL_REVISION=MODEL_REVISION,
+                   DOCX_OCR_IMAGE_SIZE="768",DOCX_OCR_MODEL_REVISION=MODEL_REVISION,
                    PYTHONPATH=str(WORK_ROOT/"src"))
 if server_key: environment["DOCX_OCR_API_KEY"]=server_key
 log_path=Path("/kaggle/working/ocr-server.log")

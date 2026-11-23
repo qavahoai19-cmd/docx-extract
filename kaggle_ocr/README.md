@@ -39,7 +39,7 @@ Ngay dưới nút **Đọc đề** có kết quả từng file, số ảnh/reque
 
 Bản mới gom ảnh của cả lô trước khi OCR, nên loại ảnh trùng giữa các đề ngay cả khi tắt cache. `batch-metrics.json` trong ZIP ghi số ảnh khác nhau, lượt cache, request và thời gian OCR của cả lô. Số liệu mỗi đề có `timing_scope=shared_batch`, không cộng số giây OCR chung nhiều lần. Bản upload luôn tắt đọc MathType native để giữ phép đo OCR thật.
 
-Cell cấu hình có `OCR_GPU_BATCH_SIZE=4`. Server thử encoder/decoder theo lô với cùng model, so đầu ra và thời gian với serial trước khi phục vụ đề. Chỉ giữ chế độ batch khi phép kiểm tra thành công và nhanh hơn; nếu không sẽ dùng lại batch size 1. Xem các trường `batch_verified`, `inference_batch_size`, `batch_validation_timings` trong dòng **Model ready**. Phải đo tiếp trên đề thật trước khi kết luận đạt mục tiêu thời gian.
+Cell cấu hình dùng batch 4 và ảnh 768 để ưu tiên tốc độ. Server thử encoder/decoder theo lô với cùng model, so đầu ra và thời gian với serial trước khi phục vụ đề. Chỉ giữ chế độ batch khi phép kiểm tra thành công và nhanh hơn; nếu không sẽ dùng lại batch size 1. Xem các trường `batch_verified`, `inference_batch_size`, `batch_validation_timings` trong dòng **Model ready**. Nếu cần ưu tiên độ chính xác, đặt ảnh 1024; phải đo tiếp trên đề thật trước khi kết luận đạt mục tiêu thời gian.
 
 Đề tiếp theo dùng lại ô này; không cần sửa đường dẫn, tạo Dataset hoặc Run All lại. Cache công thức dùng chung giữa các lượt trong phiên. File ZIP kết quả cũng được ghi ở Output. Nếu session đã tắt/khởi động lại, chạy Run All trước. Mặc định **không chạy benchmark**, không xuất lại đề mẫu. File `.doc` hoặc `.rar` cần chuyển sang DOCX/ZIP trước.
 

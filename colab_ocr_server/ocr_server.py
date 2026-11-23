@@ -42,11 +42,11 @@ _model_dtype = None
 _warmed_up = False
 _resolved_revision = os.getenv("DOCX_OCR_MODEL_REVISION", "main")
 _backend = os.getenv("DOCX_OCR_BACKEND", "transformers")
-_inference_batch_size = max(1, min(8, int(os.getenv("DOCX_OCR_INFERENCE_BATCH_SIZE", "1"))))
+_inference_batch_size = max(1, min(8, int(os.getenv("DOCX_OCR_INFERENCE_BATCH_SIZE", "4"))))
 _batch_verified = False
 _batch_validation_error = ""
 _batch_validation_timings = {}
-_image_size = int(os.getenv("DOCX_OCR_IMAGE_SIZE", "1024"))
+_image_size = int(os.getenv("DOCX_OCR_IMAGE_SIZE", "768"))
 if _image_size not in {768, 1024}:
     raise ValueError("DOCX_OCR_IMAGE_SIZE must be 768 or 1024")
 _prompt = "<image>\nOCR this formula to LaTeX."
