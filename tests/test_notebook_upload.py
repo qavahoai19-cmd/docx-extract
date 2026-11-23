@@ -84,3 +84,33 @@ def test_duplicate_names_and_partial_ocr_failure_are_preserved(tmp_path, monkeyp
         assert "01-de/manifest.json" in result.namelist()
         assert "02-de/manifest.json" in result.namelist()
         assert not any("input/" in n or "cache/" in n for n in result.namelist())
+
+
+def test_unsupported_omml_is_needs_review_and_preserved_in_zip(tmp_path):
+    stream = io.BytesIO()
+    with zipfile.ZipFile(stream, "w") as doc:
+        doc.writestr("[Content_Types].xml", "<Types/>")
+        doc.writestr("word/document.xml", '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math"><w:body><w:p><m:oMath><m:futureMath><m:r><m:t>x</m:t></m:r></m:futureMath></m:oMath></w:p></w:body></w:document>')
+    archive, rows = upload.process_documents([("unsupported.docx", stream.getvalue())], tmp_path, "http://unused/ocr")
+    assert rows[0]["status"] == "needs_review"
+    assert rows[0]["ocr"]["failures"] == rows[0]["ocr"]["omml_total"] == 1
+    with zipfile.ZipFile(archive) as result:
+        manifest = json.loads(result.read(rows[0]["output"] + "/manifest.json"))
+        assert manifest["assets"][0]["review_required"]
+        assert b"futureMath" in result.read(rows[0]["output"] + "/sidecar/mathml_1.xml")
+
+
+def test_merged_input_picker_keeps_selection_and_upload_mode(tmp_path, monkeypatch):
+    monkeypatch.setattr("IPython.display.display", lambda *_: None)
+    (tmp_path / "first.docx").write_bytes(docx_bytes())
+    (tmp_path / "second.docx").write_bytes(docx_bytes())
+    ui = upload.show_upload_ui(tmp_path / "work", "http://unused/ocr", input_root=tmp_path)
+    assert ui["button"].disabled
+    ui["input_picker"].value = (str(tmp_path / "second.docx"),)
+    assert not ui["button"].disabled
+    ui["refresh"].click()
+    assert ui["input_picker"].value == (str(tmp_path / "second.docx"),)
+    ui["source_toggle"].value = "upload"
+    assert ui["button"].disabled
+    ui["source_toggle"].value = "input"
+    assert not ui["button"].disabled

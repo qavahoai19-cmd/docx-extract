@@ -32,10 +32,19 @@ class Context:
         defaults = dict(http_requests=0, cache_hits=0, remote_images=0, total_s=0.0,
                         server_prepare_s=0.0, server_infer_s=0.0)
         defaults.update(self.ocr_stats)
-        defaults["ocr_total"] = defaults.get("total", 0)
+        defaults.setdefault("ocr_total", defaults.get("total", 0))
         equations = [item for item in self.manifest if item["type"] == "mathtype"]
-        defaults["total"] = len(equations)
-        defaults["failures"] = sum(not item.get("latex") and not item.get("preserved") for item in equations)
+        omml = [item for item in self.manifest if item["type"] == "mathml" and not item.get("empty")]
+        defaults["mathtype_total"] = len(equations)
+        defaults["omml_objects"] = sum(item["type"] == "mathml" for item in self.manifest)
+        defaults["omml_total"] = sum(item.get("formula_count", 1) for item in omml)
+        defaults["omml_failures"] = sum(item.get("formula_count", 1) for item in omml
+            if not item.get("preserved") and not (item.get("latex") or "").strip())
+        defaults["total"] = len(equations) + defaults["omml_total"]
+        defaults["failures"] = defaults["omml_failures"] + sum(
+            not item.get("preserved") and not (item.get("latex") or "").strip() for item in equations)
+        defaults["missing_assets"] = sum(item.get("source") == "missing" for item in self.manifest)
+        defaults["review_issues"] = sum(bool(item.get("review_required")) for item in self.manifest)
         if self.preserve_formulas:
             defaults["mode"] = "preserve_formulas"
             defaults["preserved_formulas"] = sum(bool(item.get("preserved")) for item in self.manifest)
@@ -104,17 +113,25 @@ class Context:
         oid = self._next("mathml")
         frag = etree.tostring(elem, encoding="utf-8")
         self.written[f"{oid}.xml"] = frag
+        formula_count = len(list(elem.iter(ns.q("m", "oMath")))) or 1
         if self.preserve_formulas:
             self.manifest.append({"id": oid, "type": "mathml", "source": "inline-omml",
-                                  "latex": None, "preserved": True, "method": "original-omml"})
+                                  "latex": None, "preserved": True, "method": "original-omml",
+                                  "formula_count": formula_count})
             return f"[!m:${oid}$]"
-        latex = mathlatex.omml_to_latex(elem)
-        if latex is None:
-            self.warnings.append(f"{oid}: OMML->LaTeX thất bại, giữ placeholder")
-        else:
+        error = None
+        try:
+            latex = mathlatex.omml_to_latex(elem, strict=True)
+        except mathlatex.UnsupportedMath as exc:
+            latex, error = None, str(exc)
+            self.warnings.append(f"{oid}: OMML->LaTeX cần kiểm tra: {error}; giữ XML gốc")
+        if latex is not None:
             self.latex[oid] = latex
-        self.manifest.append(
-            {"id": oid, "type": "mathml", "source": "inline-omml", "latex": latex})
+        entry = {"id": oid, "type": "mathml", "source": "inline-omml", "latex": latex,
+                 "formula_count": formula_count, "empty": latex is not None and not latex.strip()}
+        if error:
+            entry.update(error=error, review_required=True)
+        self.manifest.append(entry)
         return f"[!m:${oid}$]"
 
     def _resolve(self, rid):

@@ -25,6 +25,31 @@ def test_omml_fragment_saved():
     assert "mathml_1.xml" in c.written
     assert b"oMath" in c.written["mathml_1.xml"]
 
+
+def test_unsupported_math_preserves_source_and_counts_failure():
+    c = _ctx()
+    xml = etree.fromstring(f'<m:oMath xmlns:m="{ns.M[1:-1]}"><m:futureMath><m:r><m:t>x</m:t></m:r></m:futureMath></m:oMath>')
+    original = etree.tostring(xml, encoding="utf-8")
+    c.omml(xml)
+    c.resolve_ocr()
+    assert c.manifest[0]["latex"] is None
+    assert c.manifest[0]["review_required"]
+    assert "futureMath" in c.manifest[0]["error"]
+    assert c.written["mathml_1.xml"] == original
+    assert c.ocr_stats["failures"] == c.ocr_stats["omml_failures"] == 1
+    assert c.ocr_stats["total"] == c.ocr_stats["omml_total"] == 1
+
+
+def test_counts_include_word_equations_and_blank_source_is_not_a_failure():
+    c = _ctx()
+    c.omml(etree.fromstring(f'<m:oMathPara xmlns:m="{ns.M[1:-1]}"><m:oMath><m:r><m:t>x</m:t></m:r></m:oMath><m:oMath><m:r><m:t>y</m:t></m:r></m:oMath></m:oMathPara>'))
+    c.omml(etree.fromstring(f'<m:oMath xmlns:m="{ns.M[1:-1]}"><m:r><m:t> </m:t></m:r></m:oMath>'))
+    c.resolve_ocr()
+    c.resolve_ocr()
+    assert c.ocr_stats["omml_total"] == c.ocr_stats["total"] == 2
+    assert c.ocr_stats["ocr_total"] == c.ocr_stats["failures"] == 0
+    assert c.manifest[1]["empty"]
+
 def test_missing_rid_warns_but_emits():
     c = _ctx()
     draw = etree.fromstring(

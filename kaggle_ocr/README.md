@@ -31,9 +31,15 @@ GPU chỉ cần cho phần **DeepSeek-OCR-2**. Đây là model duy nhất đư�
 ## Đưa đề mới vào đọc
 
 1. Mở [notebook](https://www.kaggle.com/code/quanganh2005/docx-ocr-kaggle-gpu/edit). Lần đầu của phiên, bấm **Run All** và chờ model sẵn sàng.
-2. Gắn DOCX hoặc ZIP ở mục **Input** của Kaggle. Trong ô **Đọc đề mới**, chọn **Kaggle Input**, bấm **Làm mới Input** nếu vừa gắn dữ liệu, rồi chọn đúng đề trong danh sách. Không có đề nào tự chạy. Hoặc chọn **Tải từ máy** để dùng nút **Chọn file đề**.
-3. Bấm **Đọc đề**. Chỉ đề đã chọn được xử lý; chờ thanh tiến độ và thông báo hoàn tất. Một ZIP chứa nhiều DOCX sẽ xử lý tất cả DOCX bên trong ZIP đó.
-4. Bấm **Tải kết quả ZIP**. Mỗi đề có một thư mục riêng gồm `markup.txt`, `manifest.json`, `sidecar/`; `summary.json` ghi thời gian, cache và lỗi từng đề.
+2. Tải DOCX/ZIP bằng **Input → Upload** ở cột phải Kaggle. Trong ô **Đọc đề mới**, bấm **Cập nhật danh sách**, chọn file (Ctrl/Shift hoặc **Chọn tất cả**).
+3. Bấm **Đọc đề**. Chờ thanh tiến độ và thông báo hoàn tất.
+4. Kết quả tự hiện ngay trong khung **Kết quả đọc đề**. Chọn **Xem đề** để đổi tài liệu; không chạy lại model và không cần tải ZIP. Word Equation hiển thị từ XML gốc, MathType/hình giữ ảnh để đối chiếu; ảnh WMF/EMF chuyển sang PNG chỉ để xem. Cảnh báo dựng ảnh được hiện rõ.
+
+Mở **Lưu kết quả ZIP (tùy chọn)** khi cần lưu markup, manifest, sidecar và số liệu. Khung xem nằm riêng ngoài vùng log của callback. Thời gian dựng bản xem/chuyển ảnh là bước riêng sau đọc Word + OCR + tạo ZIP. Bản xem không sửa LaTeX OCR hay bảo đảm nội dung/đáp án hoàn toàn đúng.
+
+Bản sửa OMML phân biệt vector/dấu mũ, giữ dấu gạch trên/dưới, mũi tên phản ứng và ngoặc vô hình; hỗ trợ hệ phương trình, ma trận và nhiều dòng. Cấu trúc chưa hỗ trợ giữ XML, ghi `error`/`review_required` trong manifest và đưa tài liệu sang `needs_review`. Thống kê `total` gồm Word Equation và MathType; `ocr_total` là số công thức thực sự thuộc luồng OCR. Không coi LaTeX khác rỗng là bằng chứng model đọc đúng ngữ nghĩa.
+
+Notebook được sinh từ code hiện có trong project, kèm bộ xem hiện tại; ô giải nén và giao diện in **mã phiên bản nguồn**. Mỗi bundle dùng thư mục nguồn riêng và nhập lại package, tránh module cũ trong kernel. Chỉ import lại file notebook đã sinh mới cập nhật code trên Kaggle; bản đã import không tự theo GitHub.
 
 Ngay dưới nút **Đọc đề** có kết quả từng file, số ảnh/request OCR chung của lô và dòng **Tổng thời gian xử lý (đọc Word + OCR + tạo ZIP)**. Tổng này gồm xử lý ở kernel và chuẩn bị ZIP; không gồm tải file từ máy lên hoặc tải/khởi động model. Mốc 6–7 giây với OCR thật và mục tiêu 20 đề/phút hiện **chưa được xác nhận**; số đo GPU DeepSeek gần nhất của đề 130 công thức vẫn là 149,014 giây.
 

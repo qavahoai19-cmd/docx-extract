@@ -9,10 +9,12 @@ Bóc nội dung đề thi Word DOCX thành markup có thứ tự, kèm công th�
 - Đọc kết quả field, nội dung lồng trong run và ký hiệu font Symbol thông dụng; giữ ký tự gốc kèm cảnh báo nếu chưa giải mã được font cũ.
 - Nhận dấu đáp án tô nền ở nhãn hoặc nội dung A–D, kể cả nhãn đánh số tự động; giữ gạch chân phát âm và hỗ trợ câu “Question” trong đề tiếng Anh.
 - Đọc công thức Word Equation (OMML) bằng code và chuyển sang LaTeX khi hỗ trợ.
+- Bộ chuyển phân biệt mũi tên vector với dấu mũ, giữ dấu gạch trên/dưới và mũi tên phản ứng. Cấu trúc chưa hỗ trợ không xuất LaTeX thiếu ký hiệu: giữ XML gốc, ghi lỗi cụ thể và đánh dấu cần kiểm tra. Số công thức tính cả Word Equation và MathType; `ok` không chứng nhận tính đúng ngữ nghĩa của kết quả model OCR.
 - Trích ảnh MathType/OLE, ảnh DrawingML/VML, nhóm hình và nội dung trong textbox, bảng lồng nhau.
 - Gửi ảnh công thức MathType/OLE đến server OCR theo lô; giữ ảnh gốc khi nhận dạng lỗi.
 - Cache theo nội dung ảnh và cấu hình model, kèm thời gian từng công đoạn.
 - Có server Colab và notebook Kaggle dùng GPU, cùng công cụ xem kết quả offline.
+- [Notebook OCR Kaggle](./kaggle_ocr/docx_ocr_kaggle.ipynb) hiển thị kết quả ngay sau khi đọc: chọn đề trong menu để xem nội dung, công thức và hình; tải ZIP là tùy chọn lưu thêm. Thêm DOCX/ZIP bằng Input → Upload rồi cập nhật danh sách trong ô đọc.
 - Có chế độ `--keep-formulas`: giữ XML Word Equation và ảnh MathType gốc, không cần LaTeX hoặc model OCR.
 
 Ảnh thường được trích và giữ nguyên; hiện chưa tự phân loại mọi ảnh thường thành công thức để OCR. Bộ đọc dữ liệu MathType gốc là tính năng thử nghiệm, mặc định tắt.

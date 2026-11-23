@@ -17,7 +17,7 @@ BASELINE = "1d70099e4070ee0995c3d15cc47312152d4559d2"
 def cell(kind, source, name):
     if kind == "code" and name in {"benchmark", "export"}:
         source = "if RUN_BENCHMARK:\n" + textwrap.indent(source, "    ") + '\nelse:\n    print("Bỏ qua đề mẫu; dùng ô Đọc đề mới ở cuối notebook.")\n'
-    result = {"cell_type":kind,"id":name,"metadata":{},"source":source.splitlines(keepends=True)}
+    result = {"cell_type":kind,"id":name,"metadata":{},"source":source}
     if kind == "code":
         result.update(execution_count=None,outputs=[])
     return result
@@ -25,14 +25,23 @@ def cell(kind, source, name):
 
 def build(owner, revision, datasets=()):
     buffer=io.BytesIO()
-    with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED) as archive:
+    with zipfile.ZipFile(buffer,"w",compression=zipfile.ZIP_DEFLATED,compresslevel=9) as archive:
         for folder in (ROOT/"src/docx_extract",ROOT/"colab_ocr_server"):
             for path in sorted(folder.glob("*.py")):
                 if not path.name.startswith("test_"):
                     archive.write(path,path.relative_to(ROOT).as_posix())
         archive.write(ROOT/"scripts/benchmark_ocr.py","scripts/benchmark_ocr.py")
         archive.write(HERE/"notebook_upload.py", "kaggle_ocr/notebook_upload.py")
-        archive.write(ROOT/"tests/fixtures/sample.docx","tests/fixtures/sample.docx")
+        archive.write(HERE/"notebook_preview.py", "kaggle_ocr/notebook_preview.py")
+        archive.write(ROOT/"scripts/preview-template.html", "scripts/preview-template.html")
+        # Store DOCX parts, then compress the whole entry with LZMA. The inner
+        # DOCX stays Word-compatible; all original part bytes are unchanged.
+        compact=io.BytesIO()
+        with zipfile.ZipFile(ROOT/"tests/fixtures/sample.docx") as sample, zipfile.ZipFile(
+                compact,"w",compression=zipfile.ZIP_STORED) as packed:
+            for member in sample.infolist():
+                packed.writestr(member,sample.read(member),compress_type=zipfile.ZIP_STORED)
+        archive.writestr("tests/fixtures/sample.docx",compact.getvalue(),compress_type=zipfile.ZIP_LZMA)
         for name in ("mathocr","context","assemble"):
             source=subprocess.check_output(["git","show",f"{BASELINE}:src/docx_extract/{name}.py"],cwd=ROOT)
             archive.writestr(f"baseline/{name}.py",source)
@@ -55,9 +64,17 @@ def build(owner, revision, datasets=()):
 
 Giữ notebook **Private**. Bật **GPU** và **Internet**, rồi bấm **Run All**.
 
-Ở ô **Đọc đề mới**, chọn DOCX/ZIP trong **Kaggle Input** (bấm **Làm mới Input** nếu vừa gắn file), rồi bấm **Đọc đề → Tải kết quả ZIP**. Chỉ đề đã chọn mới được đọc. Có thể chuyển sang **Tải từ máy**.
+**Bản xem trực tiếp:** dùng code nguồn hiện tại, hiển thị đề/công thức/hình ngay trong notebook. ZIP chỉ để lưu thêm.
 
-DeepSeek-OCR-2 chạy trên GPU 0; model được nạp một lần mỗi phiên. Benchmark mặc định tắt; đặt `RUN_BENCHMARK=True` nếu cần đo đề mẫu.
+**Đã sửa OMML:** giữ vector, dấu gạch và mũi tên; công thức chưa hỗ trợ được giữ XML gốc và báo cần kiểm tra. Thống kê gồm cả Word Equation và MathType.
+
+- Đọc DOCX, cache và đọc dữ liệu MathType không cần GPU. DeepSeek-OCR-2 dùng GPU CUDA.
+- Chọn **Settings → Accelerator → GPU T4 ×2** (hoặc L4 nếu có), bật **Internet**.
+- Bấm **Run All** lần đầu. Thêm DOCX/ZIP bằng **Input → Upload** bên phải Kaggle. Ở ô **Đọc đề mới**, bấm **Cập nhật danh sách → chọn đề → Đọc đề**. Kết quả tự hiện bên dưới; menu **Xem đề** đổi giữa các đề, không chạy OCR lại.
+- Phần đo tốc độ mặc định tắt. Đặt `RUN_BENCHMARK=True` nếu muốn chạy lại đề mẫu 16 công thức; có thể bật thêm `RUN_HEAVY_BENCHMARK` và đặt `HEAVY_DOCX_PATH` để đo đề lớn.
+- Chỉ GPU 0 được dùng. Hai T4 không tự gộp thành một bộ nhớ 32 GB.
+- T4/P100 dùng FP16; GPU có BF16 native dùng BF16. Có warm-up và kiểm tra OCR thật trước khi benchmark.
+- Tunnel HTTP là tùy chọn cho phiên tương tác, không phải dịch vụ hoạt động liên tục. Notebook batch vẫn chạy khi không có ngrok.
 ""","intro"))
     cells.append(cell("code",f'''import os, sys, json, time, socket, subprocess
 from pathlib import Path
@@ -90,11 +107,13 @@ subprocess.run(["apt-get","update","-qq"],check=True)
 subprocess.run(["apt-get","install","-y","-qq","libreoffice-core","libreoffice-impress"],check=True)
 print("Dependencies ready; Torch was not replaced.")
 ''',"install"))
-    cells.append(cell("code",f'''import base64, hashlib, io, zipfile
+    cells.append(cell("code",f'''import base64, hashlib, io, zipfile, importlib
 PAYLOAD = {encoded!r}
 payload=base64.b85decode(PAYLOAD)
 if hashlib.sha256(payload).hexdigest()!={digest!r}:
     raise RuntimeError("Bundle integrity check failed")
+SOURCE_VERSION = {digest[:12]!r}
+WORK_ROOT = WORK_ROOT.parent / ("docx-ocr-" + SOURCE_VERSION)
 WORK_ROOT.mkdir(parents=True,exist_ok=True)
 with zipfile.ZipFile(io.BytesIO(payload)) as archive:
     for member in archive.infolist():
@@ -102,8 +121,13 @@ with zipfile.ZipFile(io.BytesIO(payload)) as archive:
         if not destination.is_relative_to(WORK_ROOT.resolve()):
             raise RuntimeError("Invalid bundle path")
     archive.extractall(WORK_ROOT)
+for name in list(sys.modules):
+    if name == "docx_extract" or name.startswith("docx_extract.") or name in {{"notebook_upload", "notebook_preview"}}:
+        sys.modules.pop(name, None)
+importlib.invalidate_caches()
 sys.path.insert(0,str(WORK_ROOT/"src"))
-print("Code and private sample data extracted:",WORK_ROOT)
+sys.path.insert(0,str(WORK_ROOT/"kaggle_ocr"))
+print("Code nguồn:",SOURCE_VERSION,"—",WORK_ROOT)
 ''',"unpack"))
     cells.append(cell("markdown","## Khởi động model, warm-up và chờ sẵn sàng\nLần đầu tải model mất thời gian riêng. Log được lưu trong output. Mô hình chỉ được nạp một lần cho phiên này.","server-note"))
     cells.append(cell("code",'''import requests
@@ -234,20 +258,15 @@ if STOP_NOW:
             process.terminate();process.wait(timeout=15)
     print("Đã dừng các process của notebook; có thể tắt session GPU.")
 ''',"stop"))
-    cells.append(cell("markdown", "## Đọc đề mới\nChọn **Kaggle Input** và đúng DOCX/ZIP trong danh sách (bấm **Làm mới Input** nếu vừa gắn đề), hoặc chuyển sang **Tải từ máy**. Chỉ khi bấm **Đọc đề** mới xử lý file đã chọn; ZIP có nhiều DOCX sẽ xử lý tất cả DOCX trong ZIP đó. Sau khi xong bấm **Tải kết quả ZIP**. Số liệu OCR chung ở batch-metrics.json; số giây tổng ở dưới nút tải. Mục tiêu 20 đề/phút chưa được xác nhận trên GPU. Lần sau dùng lại ô này; không cần Run All.", "upload-note"))
-    cells.append(cell("code", '''if "exam_upload" in globals():
-    exam_upload["uploader"].value=()
-    exam_upload["output"].clear_output()
-sys.path.insert(0,str(WORK_ROOT/"kaggle_ocr"))
-import importlib
-for module in ("docx_extract.mathnative", "docx_extract.mathocr", "docx_extract.context", "docx_extract.xmlwalk", "docx_extract.runs", "docx_extract.tables", "docx_extract.assemble", "docx_extract.batch", "docx_extract", "notebook_upload"):
-    importlib.reload(importlib.import_module(module))
+    cells.append(cell("markdown", "## Đọc và xem kết quả\nThêm DOCX/ZIP bằng **Input → Upload**, chờ tải xong. Bấm **Cập nhật danh sách**, chọn file (Ctrl/Shift hoặc Chọn tất cả), rồi **Đọc đề**. Nội dung, công thức gốc và hình tự hiện trong khung xem. Chọn **Xem đề** để đổi tài liệu. Cảnh báo hiện trong bản xem; LaTeX OCR vẫn cần đối chiếu. ZIP là tùy chọn lưu thêm. Dựng bản xem/chuyển ảnh vector có thời gian riêng, không phải inference OCR. Lần sau dùng lại giao diện, không cần Run All.", "upload-note"))
+    cells.append(cell("code", '''sys.path.insert(0,str(WORK_ROOT/"kaggle_ocr"))
 from notebook_upload import show_upload_ui
-exam_upload = show_upload_ui(WORK_ROOT, ENDPOINT)
+print("Phiên bản code đang dùng:", SOURCE_VERSION)
+exam_upload = show_upload_ui(WORK_ROOT, ENDPOINT, previous=globals().get("exam_upload"))
 ''', "upload"))
-    notebook={"nbformat":4,"nbformat_minor":5,"metadata":{"kernelspec":{"display_name":"Python 3","language":"python","name":"python3"},"language_info":{"name":"python"}},"cells":cells}
+    notebook={"nbformat":4,"nbformat_minor":5,"metadata":{"kernelspec":{"display_name":"Python 3","language":"python","name":"python3"},"language_info":{"name":"python"},"docx_ocr_source_version":digest[:12]},"cells":cells}
     target=HERE/"docx_ocr_kaggle.ipynb"
-    serialized=json.dumps(notebook,ensure_ascii=False,indent=1)
+    serialized=json.dumps(notebook,ensure_ascii=False,separators=(",", ":"))
     if len(serialized.encode("utf-8"))>=1_000_000:
         raise RuntimeError("Notebook exceeds Kaggle's 1 MB source limit")
     target.write_text(serialized,encoding="utf-8",newline="\n")
