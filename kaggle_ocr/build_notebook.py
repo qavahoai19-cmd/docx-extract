@@ -53,15 +53,11 @@ def build(owner, revision, datasets=()):
     cells=[]
     cells.append(cell("markdown","""# DOCX OCR — Kaggle GPU
 
-Notebook tự chứa code server/client, đề mẫu và ảnh thử. Giữ notebook ở chế độ **Private** vì có dữ liệu đề thi.
+Giữ notebook **Private**. Bật **GPU** và **Internet**, rồi bấm **Run All**.
 
-- Đọc DOCX, cache và đọc dữ liệu MathType không cần GPU. DeepSeek-OCR-2 dùng GPU CUDA.
-- Chọn **Settings → Accelerator → GPU T4 ×2** (hoặc L4 nếu có), bật **Internet**.
-- Bấm **Run All** để khởi động lần đầu. Sau đó đến ô **Đọc đề mới** ở cuối notebook, bấm **Chọn file đề → Đọc đề → Tải kết quả ZIP**. Nhận DOCX hoặc ZIP chứa DOCX, không cần tạo Dataset hay sửa đường dẫn.
-- Phần đo tốc độ mặc định tắt. Đặt `RUN_BENCHMARK=True` nếu muốn chạy lại đề mẫu 16 công thức; có thể bật thêm `RUN_HEAVY_BENCHMARK` và đặt `HEAVY_DOCX_PATH` để đo đề lớn.
-- Chỉ GPU 0 được dùng. Hai T4 không tự gộp thành một bộ nhớ 32 GB.
-- T4/P100 dùng FP16; GPU có BF16 native dùng BF16. Có warm-up và kiểm tra OCR thật trước khi benchmark.
-- Tunnel HTTP là tùy chọn cho phiên tương tác, không phải dịch vụ hoạt động liên tục. Notebook batch vẫn chạy khi không có ngrok.
+Ở ô **Đọc đề mới**, chọn DOCX/ZIP trong **Kaggle Input** (bấm **Làm mới Input** nếu vừa gắn file), rồi bấm **Đọc đề → Tải kết quả ZIP**. Chỉ đề đã chọn mới được đọc. Có thể chuyển sang **Tải từ máy**.
+
+DeepSeek-OCR-2 chạy trên GPU 0; model được nạp một lần mỗi phiên. Benchmark mặc định tắt; đặt `RUN_BENCHMARK=True` nếu cần đo đề mẫu.
 ""","intro"))
     cells.append(cell("code",f'''import os, sys, json, time, socket, subprocess
 from pathlib import Path
@@ -238,7 +234,7 @@ if STOP_NOW:
             process.terminate();process.wait(timeout=15)
     print("Đã dừng các process của notebook; có thể tắt session GPU.")
 ''',"stop"))
-    cells.append(cell("markdown", "## Đọc đề mới\nChọn DOCX hoặc ZIP chứa DOCX từ máy, rồi bấm **Đọc đề**. Ảnh cần OCR được gom chung giữa các đề, loại trùng rồi gửi theo lô. Chờ xử lý và bấm **Tải kết quả ZIP**. Số liệu OCR chung ở batch-metrics.json; số giây tổng ở dưới nút tải. Mục tiêu 20 đề/phút chưa được xác nhận trên GPU. Lần sau dùng lại ô này; không cần Run All.", "upload-note"))
+    cells.append(cell("markdown", "## Đọc đề mới\nChọn **Kaggle Input** và đúng DOCX/ZIP trong danh sách (bấm **Làm mới Input** nếu vừa gắn đề), hoặc chuyển sang **Tải từ máy**. Chỉ khi bấm **Đọc đề** mới xử lý file đã chọn; ZIP có nhiều DOCX sẽ xử lý tất cả DOCX trong ZIP đó. Sau khi xong bấm **Tải kết quả ZIP**. Số liệu OCR chung ở batch-metrics.json; số giây tổng ở dưới nút tải. Mục tiêu 20 đề/phút chưa được xác nhận trên GPU. Lần sau dùng lại ô này; không cần Run All.", "upload-note"))
     cells.append(cell("code", '''if "exam_upload" in globals():
     exam_upload["uploader"].value=()
     exam_upload["output"].clear_output()
@@ -254,7 +250,7 @@ exam_upload = show_upload_ui(WORK_ROOT, ENDPOINT)
     serialized=json.dumps(notebook,ensure_ascii=False,indent=1)
     if len(serialized.encode("utf-8"))>=1_000_000:
         raise RuntimeError("Notebook exceeds Kaggle's 1 MB source limit")
-    target.write_text(serialized,encoding="utf-8")
+    target.write_text(serialized,encoding="utf-8",newline="\n")
     metadata={"id":f"{owner}/docx-ocr-kaggle-gpu","title":"DOCX OCR Kaggle GPU","code_file":target.name,
               "language":"python","kernel_type":"notebook","is_private":True,"enable_gpu":True,
               "enable_internet":True,"machine_shape":"NvidiaTeslaT4","dataset_sources":list(datasets),"competition_sources":[],"kernel_sources":[],"model_sources":[]}

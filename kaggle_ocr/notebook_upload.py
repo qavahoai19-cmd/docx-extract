@@ -17,6 +17,30 @@ from docx_extract.mathocr import OCRClient
 
 
 MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+KAGGLE_INPUT = Path("/kaggle/input")
+
+
+def list_input_files(input_root=KAGGLE_INPUT):
+    """List selectable exams without reading their contents or running OCR."""
+    root = Path(input_root)
+    if not root.is_dir():
+        return []
+    return sorted(
+        path.relative_to(root).as_posix()
+        for path in root.rglob("*")
+        if path.is_file() and path.suffix.lower() in {".docx", ".zip"}
+        and not path.name.startswith("~$")
+        and path.resolve().is_relative_to(root.resolve())
+    )
+
+
+def input_documents(selection, input_root=KAGGLE_INPUT):
+    """Read only the explicitly selected Kaggle Input file."""
+    root = Path(input_root).resolve()
+    path = (root / selection).resolve()
+    if not path.is_relative_to(root) or not path.is_file() or path.suffix.lower() not in {".docx", ".zip"}:
+        raise ValueError("Đề đã chọn không còn hợp lệ trong Kaggle Input.")
+    return gather_documents([(path.name, path.read_bytes())])
 
 
 def upload_items(value):
@@ -104,16 +128,36 @@ def show_upload_ui(work_root, endpoint):
     import ipywidgets as widgets
     from IPython.display import HTML, display
 
-    uploader = widgets.FileUpload(accept=".docx,.zip", multiple=True, description="Chọn file đề")
+    source = widgets.ToggleButtons(options=[("Kaggle Input", "input"), ("Tải từ máy", "upload")],
+                                   value="input", description="Nguồn đề:")
+    input_select = widgets.Dropdown(options=[("— Chọn đề trong Input —", "")],
+                                    description="Đề:", layout=widgets.Layout(width="90%"))
+    refresh = widgets.Button(description="Làm mới Input", icon="refresh")
+    uploader = widgets.FileUpload(accept=".docx,.zip", multiple=True, description="Chọn file đề", disabled=True)
     button = widgets.Button(description="Đọc đề", button_style="success", disabled=True)
-    selected = widgets.HTML("Chọn DOCX hoặc ZIP chứa DOCX từ máy của bạn.")
+    selected = widgets.HTML()
     progress = widgets.IntProgress(value=0, min=0, max=1, description="OCR:")
     output = widgets.Output()
 
-    def selection_changed(change):
-        names = [name for name, _ in upload_items(change["new"])]
-        selected.value = "Đã chọn: " + ", ".join(html.escape(n) for n in names) if names else "Chọn file đề."
-        button.disabled = not names
+    def update_selection(_=None):
+        from_input = source.value == "input"
+        input_select.disabled = refresh.disabled = not from_input
+        uploader.disabled = from_input
+        names = [name for name, _ in upload_items(uploader.value)] if not from_input else []
+        if from_input:
+            choice = input_select.value
+            selected.value = ("Đã chọn: " + html.escape(choice)) if choice else "Chọn một đề trong Kaggle Input, rồi bấm Đọc đề."
+            button.disabled = not bool(choice)
+        else:
+            selected.value = ("Đã chọn: " + ", ".join(html.escape(n) for n in names)) if names else "Chọn DOCX hoặc ZIP từ máy."
+            button.disabled = not bool(names)
+
+    def refresh_input(_=None):
+        current = input_select.value
+        files = list_input_files()
+        input_select.options = [("— Chọn đề trong Input —", "")] + [(name, name) for name in files]
+        input_select.value = current if current in files else ""
+        update_selection()
 
     def update_progress(done, total, stats):
         progress.max = max(1, total)
@@ -121,14 +165,15 @@ def show_upload_ui(work_root, endpoint):
         progress.description = f"{done}/{total}"
 
     def read_clicked(_):
-        uploader.disabled = button.disabled = True
+        source.disabled = input_select.disabled = refresh.disabled = uploader.disabled = button.disabled = True
         output.clear_output(wait=True)
         progress.value = 0
         progress.bar_style = "info"
         try:
             with output:
                 job_started = perf_counter()
-                documents = gather_documents(upload_items(uploader.value))
+                documents = (input_documents(input_select.value) if source.value == "input"
+                             else gather_documents(upload_items(uploader.value)))
                 print(f"Đang đọc {len(documents)} đề…", flush=True)
                 archive, rows = process_documents(documents, work_root, endpoint, update_progress)
                 with zipfile.ZipFile(archive) as result_zip:
@@ -156,11 +201,16 @@ def show_upload_ui(work_root, endpoint):
             with output:
                 print("Chưa đọc được đề:", exc)
         finally:
-            uploader.disabled = False
-            button.disabled = not bool(uploader.value)
+            source.disabled = False
+            update_selection()
 
-    uploader.observe(selection_changed, names="value")
+    source.observe(update_selection, names="value")
+    input_select.observe(update_selection, names="value")
+    uploader.observe(update_selection, names="value")
+    refresh.on_click(refresh_input)
     button.on_click(read_clicked)
-    display(widgets.VBox([widgets.HTML("<h3>Đọc đề mới</h3>"), selected,
-                          widgets.HBox([uploader, button]), progress, output]))
-    return {"uploader": uploader, "button": button, "output": output}
+    refresh_input()
+    display(widgets.VBox([widgets.HTML("<h3>Đọc đề mới</h3>"), source,
+                          widgets.HBox([input_select, refresh]), uploader, selected,
+                          button, progress, output]))
+    return {"uploader": uploader, "input_select": input_select, "button": button, "output": output}

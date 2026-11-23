@@ -26,13 +26,13 @@ Với đề tô nền, bộ đọc nhận highlight hoặc shading trên nhãn A
 
 GPU chỉ cần cho phần **DeepSeek-OCR-2**. Đây là model duy nhất được hỗ trợ trong luồng đọc đề; pipeline DeepSeek-OCR cũ đã loại bỏ để tránh dùng nhầm model chưa được benchmark. Bóc DOCX, cache và chuyển định dạng chạy trên CPU. Bộ đọc MathType trực tiếp đã có ở chế độ thử nghiệm nhưng **mặc định tắt**: mục tiêu người dùng là **code + model OCR thực sự chạy trong 6–7 giây cho đề mới**, không được dùng kết quả đọc native hoặc cache thay cho phép đo này.
 
-[Notebook tự chứa](./docx_ocr_kaggle.ipynb) đã kèm code client/server, ô chọn file, ảnh PNG kiểm tra GPU và đề mẫu 16 công thức. Đọc đề mới không cần tạo Kaggle Dataset. Giữ notebook **Private** vì bundle chứa dữ liệu đề. Kaggle giới hạn mã nguồn notebook dưới 1 MB; đề mới đi qua nút chọn file hoặc Input riêng.
+[Notebook tự chứa](./docx_ocr_kaggle.ipynb) đã kèm code client/server, ô chọn đề trong Kaggle Input, ảnh PNG kiểm tra GPU và đề mẫu 16 công thức. Bạn cũng có thể tải đề trực tiếp từ máy. Giữ notebook **Private** vì bundle chứa dữ liệu đề. Kaggle giới hạn mã nguồn notebook dưới 1 MB.
 
 ## Đưa đề mới vào đọc
 
 1. Mở [notebook](https://www.kaggle.com/code/quanganh2005/docx-ocr-kaggle-gpu/edit). Lần đầu của phiên, bấm **Run All** và chờ model sẵn sàng.
-2. Ở cuối notebook, ô **Đọc đề mới**, bấm **Chọn file đề**. Chọn một/nhiều DOCX hoặc một ZIP chứa DOCX từ máy.
-3. Bấm **Đọc đề**. Chờ thanh tiến độ và thông báo hoàn tất.
+2. Gắn DOCX hoặc ZIP ở mục **Input** của Kaggle. Trong ô **Đọc đề mới**, chọn **Kaggle Input**, bấm **Làm mới Input** nếu vừa gắn dữ liệu, rồi chọn đúng đề trong danh sách. Không có đề nào tự chạy. Hoặc chọn **Tải từ máy** để dùng nút **Chọn file đề**.
+3. Bấm **Đọc đề**. Chỉ đề đã chọn được xử lý; chờ thanh tiến độ và thông báo hoàn tất. Một ZIP chứa nhiều DOCX sẽ xử lý tất cả DOCX bên trong ZIP đó.
 4. Bấm **Tải kết quả ZIP**. Mỗi đề có một thư mục riêng gồm `markup.txt`, `manifest.json`, `sidecar/`; `summary.json` ghi thời gian, cache và lỗi từng đề.
 
 Ngay dưới nút **Đọc đề** có kết quả từng file, số ảnh/request OCR chung của lô và dòng **Tổng thời gian xử lý (đọc Word + OCR + tạo ZIP)**. Tổng này gồm xử lý ở kernel và chuẩn bị ZIP; không gồm tải file từ máy lên hoặc tải/khởi động model. Mốc 6–7 giây với OCR thật và mục tiêu 20 đề/phút hiện **chưa được xác nhận**; số đo GPU DeepSeek gần nhất của đề 130 công thức vẫn là 149,014 giây.
@@ -41,7 +41,7 @@ Bản mới gom ảnh của cả lô trước khi OCR, nên loại ảnh trùng 
 
 Cell cấu hình dùng batch 4 và ảnh 768 để ưu tiên tốc độ. Server thử encoder/decoder theo lô với cùng model, so đầu ra và thời gian với serial trước khi phục vụ đề. Chỉ giữ chế độ batch khi phép kiểm tra thành công và nhanh hơn; nếu không sẽ dùng lại batch size 1. Xem các trường `batch_verified`, `inference_batch_size`, `batch_validation_timings` trong dòng **Model ready**. Nếu cần ưu tiên độ chính xác, đặt ảnh 1024; phải đo tiếp trên đề thật trước khi kết luận đạt mục tiêu thời gian.
 
-Đề tiếp theo dùng lại ô này; không cần sửa đường dẫn, tạo Dataset hoặc Run All lại. Cache công thức dùng chung giữa các lượt trong phiên. File ZIP kết quả cũng được ghi ở Output. Nếu session đã tắt/khởi động lại, chạy Run All trước. Mặc định **không chạy benchmark**, không xuất lại đề mẫu. File `.doc` hoặc `.rar` cần chuyển sang DOCX/ZIP trước.
+Đề tiếp theo chỉ cần chọn file khác trong danh sách rồi bấm **Đọc đề**; không cần sửa đường dẫn hoặc Run All lại. Cache công thức dùng chung giữa các lượt trong phiên. File ZIP kết quả cũng được ghi ở Output. Nếu session đã tắt/khởi động lại, chạy Run All trước. Mặc định **không chạy benchmark**, không xuất lại đề mẫu. File `.doc` hoặc `.rar` cần chuyển sang DOCX/ZIP trước.
 
 Code giao diện và xử lý upload: [notebook_upload.py](./notebook_upload.py). Bộ sinh notebook đưa sẵn module này vào bundle. Các file trùng tên được giữ riêng; OCR thiếu kết quả được đánh dấu cần kiểm tra, vẫn cho tải phần dữ liệu đã xử lý.
 

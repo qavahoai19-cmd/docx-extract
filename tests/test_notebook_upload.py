@@ -39,6 +39,19 @@ def test_invalid_or_empty_upload_does_not_look_successful():
         upload.gather_documents([])
 
 
+def test_kaggle_input_requires_explicit_file_selection(tmp_path):
+    first = tmp_path / "dataset-a" / "de-1.docx"
+    second = tmp_path / "dataset-b" / "de-2.docx"
+    first.parent.mkdir()
+    second.parent.mkdir()
+    first.write_bytes(docx_bytes())
+    second.write_bytes(docx_bytes())
+    assert upload.list_input_files(tmp_path) == ["dataset-a/de-1.docx", "dataset-b/de-2.docx"]
+    assert upload.input_documents("dataset-b/de-2.docx", tmp_path) == [("de-2.docx", second.read_bytes())]
+    with pytest.raises(ValueError):
+        upload.input_documents("../other.docx", tmp_path)
+
+
 def test_duplicate_names_and_partial_ocr_failure_are_preserved(tmp_path, monkeypatch):
     class Client:
         def __init__(self, **kwargs):
