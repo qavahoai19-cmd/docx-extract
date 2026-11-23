@@ -23,7 +23,7 @@ def build(target=TARGET):
         raise RuntimeError("Print helper embedding marker missing")
     worker = worker.replace(print_import, print_helpers, 1)
     version = hashlib.sha256((app + worker).encode()).hexdigest()[:12]
-    introduction = """# Chạy thử DOCX — Pandoc + DeepSeek-OCR
+    introduction = """# Chạy thử DOCX — Pandoc + DeepSeek-OCR-2
 
 
 1. Giữ notebook **Private**, bật **Internet** và chọn **GPU** trong Settings.
@@ -40,9 +40,9 @@ Nếu xử lý thất bại, giao diện hiển thị lỗi gốc và nút **T�
 Nếu DOCX đã nằm trong dataset, mở **Hoặc chọn DOCX đã có trên Kaggle**, bấm **Làm mới** rồi chọn file. Nếu chỉ có một DOCX, notebook tự chọn. Thiếu file/GPU thì nút chạy bị khóa, không cần sửa code.
 
 Lần đầu cần tải model và cài thư viện OCR riêng. Thư viện OCR chạy trong tiến trình riêng, không hạ phiên bản Transformers/Tokenizers của kernel notebook.
-Trong lúc cài, log hiển thị gói đang tải/cài; chỉ khi xuất hiện bước nạp DeepSeek-OCR/OCR ảnh thì model mới bắt đầu làm việc.
+Trong lúc cài, log hiển thị gói đang tải/cài; chỉ khi xuất hiện bước nạp DeepSeek-OCR-2/OCR ảnh thì model mới bắt đầu làm việc.
 
-Giữ model `deepseek-ai/DeepSeek-OCR`, BF16, eager attention và cấu hình OCR từ code đã gửi. Bản này đọc trực tiếp quan hệ ảnh trong DOCX (kể cả preview MathType/VML), giữ vị trí bằng marker, gửi mọi ảnh đọc được và không trắng vào OCR. Không bỏ ảnh vì nhỏ hơn 80 px, bị đoán là hình vẽ hoặc có alt-text. Ảnh trùng chỉ OCR một lần.
+Giữ model `deepseek-ai/DeepSeek-OCR-2`, BF16, eager attention và cấu hình OCR hiện tại. Bản này đọc trực tiếp quan hệ ảnh trong DOCX (kể cả preview MathType/VML), giữ vị trí bằng marker, gửi mọi ảnh đọc được và không trắng vào OCR. Không bỏ ảnh vì nhỏ hơn 80 px, bị đoán là hình vẽ hoặc có alt-text. Ảnh trùng chỉ OCR một lần.
 
 WMF/EMF/SVG được chuyển sang PNG bằng LibreOffice Draw. Nếu cần, lần đầu tự cài LibreOffice nên sẽ lâu hơn; nếu chuyển đổi lỗi thì giữ file gốc và báo cần kiểm tra, không âm thầm bỏ ảnh. ZIP có `image-report.json` ghi trạng thái từng ảnh, kết quả OCR thô và số lỗi. Word Equation gốc vẫn do Pandoc đọc trực tiếp, không giả là đã OCR.
 
@@ -50,7 +50,7 @@ Nếu không có ảnh cần OCR, giao diện ghi rõ **không có inference mod
 
 Đã kiểm tra luồng nhập file/UI và cú pháp local; chưa xác nhận inference GPU của bản notebook này trên Kaggle.
 
-Tham khảo kỹ thuật: [model gốc](https://huggingface.co/deepseek-ai/DeepSeek-OCR), [pip --target](https://pip.pypa.io/en/stable/cli/pip_install/#cmdoption-t).
+Tham khảo kỹ thuật: [model](https://huggingface.co/deepseek-ai/DeepSeek-OCR-2), [pip --target](https://pip.pypa.io/en/stable/cli/pip_install/#cmdoption-t).
 """
     bootstrap = f'''# Chạy cell này một lần. Mọi thao tác tiếp theo ở các nút bên dưới.
 import importlib.util

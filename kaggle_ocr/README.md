@@ -24,7 +24,7 @@ Với đề tô nền, bộ đọc nhận highlight hoặc shading trên nhãn A
 
 ## Notebook chạy model OCR
 
-GPU chỉ cần cho phần DeepSeek-OCR-2 trong cấu hình hiện tại. Bóc DOCX, cache và chuyển định dạng chạy trên CPU. Bộ đọc MathType trực tiếp đã có ở chế độ thử nghiệm nhưng **mặc định tắt**: mục tiêu người dùng là **code + model OCR thực sự chạy trong 6–7 giây cho đề mới**, không được dùng kết quả đọc native hoặc cache thay cho phép đo này.
+GPU chỉ cần cho phần **DeepSeek-OCR-2**. Đây là model duy nhất được hỗ trợ trong luồng đọc đề; pipeline DeepSeek-OCR cũ đã loại bỏ để tránh dùng nhầm model chưa được benchmark. Bóc DOCX, cache và chuyển định dạng chạy trên CPU. Bộ đọc MathType trực tiếp đã có ở chế độ thử nghiệm nhưng **mặc định tắt**: mục tiêu người dùng là **code + model OCR thực sự chạy trong 6–7 giây cho đề mới**, không được dùng kết quả đọc native hoặc cache thay cho phép đo này.
 
 [Notebook tự chứa](./docx_ocr_kaggle.ipynb) đã kèm code client/server, ô chọn file, ảnh PNG kiểm tra GPU và đề mẫu 16 công thức. Đọc đề mới không cần tạo Kaggle Dataset. Giữ notebook **Private** vì bundle chứa dữ liệu đề. Kaggle giới hạn mã nguồn notebook dưới 1 MB; đề mới đi qua nút chọn file hoặc Input riêng.
 
@@ -47,7 +47,7 @@ Code giao diện và xử lý upload: [notebook_upload.py](./notebook_upload.py)
 
 ## Chạy bằng giao diện Kaggle
 
-Notebook trên tài khoản `quanganh2005`: [DOCX OCR Kaggle GPU](https://www.kaggle.com/code/quanganh2005/docx-ocr-kaggle-gpu/edit), chế độ **Private**. Ngày 2026-11-16 đã xác minh tài khoản, bật GPU T4 ×2 và Internet, chạy thành công model trên GPU 0 (14,6 GiB, FP16, Torch 2.11.0+cu130). Tải model và warm-up mất 79,2 giây; smoke test OCR thật mất 0,492 giây. Benchmark đề 16 công thức: 33,337 → 13,992 giây (2,38×); lượt có cache 0,0449 giây; 0 lỗi và không đổi LaTeX so với baseline. Đây là một lượt đo, server/client cùng chạy trên Kaggle, chưa gồm mạng từ Windows.
+Notebook trên tài khoản `quanganh2005`: [DOCX OCR Kaggle GPU](https://www.kaggle.com/code/quanganh2005/docx-ocr-kaggle-gpu/edit), chế độ **Private**. Ngày 2026-11-16 đã xác minh tài khoản, bật GPU T4 ×2 và Internet, chạy thành công **DeepSeek-OCR-2** trên GPU 0 (14,6 GiB, FP16, Torch 2.11.0+cu130). Tải model và warm-up mất 79,2 giây; smoke test OCR thật mất 0,492 giây. Benchmark đề 16 công thức: 33,337 → 13,992 giây (2,38×); lượt có cache 0,0449 giây; 0 lỗi và không đổi LaTeX so với baseline. Đây là một lượt đo, server/client cùng chạy trên Kaggle, chưa gồm mạng từ Windows.
 
 Đã tự tải và gắn [đề 130 công thức (Private)](https://www.kaggle.com/datasets/quanganh2005/docx-ocr-private-benchmark-130) vào notebook online. Bản đo tốc độ được lưu ở phiên bản #2. Bản có ô chọn file dùng để đọc đề mới; không tự chạy lại đề benchmark trong Input.
 

@@ -21,14 +21,14 @@ def build(target=None):
             for name in node.targets:
                 if isinstance(name, ast.Name) and name.id in {"INPUT_DOCX", "RUN_ROOT", "OCR_DIAGRAMS", "OCR_SMALL_IMAGES"}:
                     settings[name.id] = ast.literal_eval(node.value)
-    instructions = """# Pandoc + DeepSeek-OCR — bản code gốc đã sửa
+    instructions = """# Pandoc + DeepSeek-OCR-2 — pipeline đã hợp nhất
 
 Chạy **cell code bên dưới một lần để mở bộ chọn đề**. Chọn đúng DOCX trong danh sách rồi bấm **Đọc đề đã chọn**. Không tự chạy đề Toán mẫu.
 
 - File phải đã được thêm vào Input của Kaggle. Bấm **Làm mới danh sách** nếu vừa thêm file. Đổi đề bằng danh sách này, không sửa các chuỗi đường dẫn bên trong code dài.
 - Mỗi lần đổi/chạy đề, tham chiếu kết quả cũ được xóa; nếu chạy lỗi thì không mở lại kết quả cũ. Giao diện hiện tên file đang đọc, tên file của kết quả, và kiểm tra DOCX đính kèm kết quả khớp file đã chọn.
-- Bật Internet và GPU để chạy DeepSeek-OCR. Lần đầu cài thư viện riêng và tải model; không thay Torch/Transformers của kernel.
-- Giữ model DeepSeek-OCR, BF16, eager và các cấu hình 384/448/512/640 theo code gốc. Không hứa thời gian/độ chính xác khi chưa chạy GPU thực tế.
+- Bật Internet và GPU để chạy DeepSeek-OCR-2. Lần đầu cài thư viện riêng và tải model; không thay Torch/Transformers của kernel.
+- Dùng duy nhất model DeepSeek-OCR-2, BF16, eager và các cấu hình 384/448/512/640. Không hứa thời gian/độ chính xác khi chưa chạy GPU thực tế.
 - `OCR_DIAGRAMS=False`: giữ hình sơ đồ, không gửi OCR mặc định như luồng gốc. Heuristic có thể phân loại sai; bật True nếu muốn OCR cả các hình này.
 - Nhận diện thêm lưới tọa độ/trục đậm để không OCR nhầm các đồ thị câu 1–2. Danh sách nhãn rời kiểu `y x O -2 -1 ...` không được chèn thành một công thức dưới hình; chữ thô vẫn lưu trong báo cáo. Công thức/ma trận không bị xóa bằng bộ lọc nhãn này.
 - `OCR_SMALL_IMAGES=True`: giữ khả năng OCR công thức nhỏ; không phóng mọi ảnh lên 384 px trước khi chọn cấu hình.

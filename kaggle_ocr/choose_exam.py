@@ -32,7 +32,7 @@ def load_existing_pipeline(namespace):
         raise RuntimeError("Chưa tìm thấy pipeline đã nạp. Cần cell OCR chính đã được thiết lập trong cùng phiên.")
     source = path.read_text(encoding="utf-8")
     if "def run_worker(" not in source or "def self_script_path(" not in source:
-        raise RuntimeError("File pipeline không đúng bản Pandoc + DeepSeek-OCR đang dùng.")
+        raise RuntimeError("File pipeline không đúng bản Pandoc + DeepSeek-OCR-2 đang dùng.")
     spec = importlib.util.spec_from_file_location("existing_exam_pipeline", path)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)

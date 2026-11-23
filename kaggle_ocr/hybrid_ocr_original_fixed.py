@@ -1,4 +1,4 @@
-"""Bản chạy thẳng dựa trên code Pandoc + DeepSeek-OCR người dùng gửi.
+"""Bản chạy thẳng dựa trên code Pandoc + DeepSeek-OCR-2.
 
 Không dùng UI cũ, không clone repository, không tự cài LibreOffice.
 Model/cấu hình suy luận giữ theo code gốc. Hậu xử lý không viết lại công thức.
@@ -36,7 +36,7 @@ INPUT_DOCX = ""  # Chọn DOCX bằng bộ chọn đề hoặc truyền --input;
 RUN_ROOT = "/kaggle/working/hybrid_original_fixed"
 OCR_DIAGRAMS = False       # Giống luồng gốc: giữ hình sơ đồ, không OCR mặc định.
 OCR_SMALL_IMAGES = True    # Không bỏ công thức chỉ vì một cạnh nhỏ hơn 80 px.
-MODEL_NAME = "deepseek-ai/DeepSeek-OCR"
+MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
 MAX_NEW_TOKENS = 1000
 HEARTBEAT_SECONDS = 5.0
 
@@ -874,7 +874,7 @@ def run(source=INPUT_DOCX, root=RUN_ROOT, *, ocr_diagrams=OCR_DIAGRAMS, ocr_smal
                 command.append("--ocr-diagrams")
             if not ocr_small_images:
                 command.append("--skip-small-images")
-            stream_command(command, log=log, env=child_environment(dependencies), step="Pandoc + DeepSeek-OCR gốc", run_started=started)
+            stream_command(command, log=log, env=child_environment(dependencies), step="Pandoc + DeepSeek-OCR-2", run_started=started)
         metrics = json.loads((output / "metrics.json").read_text(encoding="utf-8"))
         metrics.update(source_path=str(source), source_name=source.name,
                        source_sha256=hashlib.sha256(source.read_bytes()).hexdigest())

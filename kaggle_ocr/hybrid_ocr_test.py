@@ -415,7 +415,7 @@ n_success = 0
 
 if need_ocr:
     print("\n" + "="*60)
-    print("  BUOC 2: Load DeepSeek-OCR")
+    print("  BUOC 2: Load DeepSeek-OCR-2")
     print("="*60)
 
     from transformers import AutoModel, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
@@ -439,7 +439,7 @@ if need_ocr:
 
     t0 = time.time()
     gc.collect(); torch.cuda.empty_cache()
-    MODEL_NAME = "deepseek-ai/DeepSeek-OCR"
+    MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
     print("  Dang load " + MODEL_NAME + " (lan dau tai ~6.7GB)...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True, use_fast=True)
     model = AutoModel.from_pretrained(

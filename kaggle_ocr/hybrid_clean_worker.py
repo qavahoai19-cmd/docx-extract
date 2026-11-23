@@ -1,4 +1,4 @@
-"""Worker for the original Pandoc + DeepSeek-OCR attachment.
+"""Worker for the Pandoc + DeepSeek-OCR-2 attachment.
 
 Executed in a child process with private dependency paths. Pandoc and the
 DeepSeek model remain; image recovery no longer discards small/vector formulas.
@@ -43,7 +43,7 @@ if free_bytes < 7_000_000_000:
     raise RuntimeError("Code goc yeu cau it nhat 7 GB VRAM trong tren GPU 0.")
 print("GPU:", torch.cuda.get_device_name(0), flush=True)
 print("INPUT:", INPUT_PATH, flush=True)
-print("MODEL: deepseek-ai/DeepSeek-OCR | dtype: bfloat16 | attention: eager", flush=True)
+print("MODEL: deepseek-ai/DeepSeek-OCR-2 | dtype: bfloat16 | attention: eager", flush=True)
 
 if not shutil.which("pandoc"):
     import pypandoc
@@ -338,7 +338,7 @@ n_success = 0
 
 if need_ocr:
     print("\n" + "="*60)
-    print("  BUOC 2: Load DeepSeek-OCR")
+    print("  BUOC 2: Load DeepSeek-OCR-2")
     print("="*60)
 
     from transformers import AutoModel, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
@@ -362,7 +362,7 @@ if need_ocr:
 
     t0 = time.time()
     gc.collect(); torch.cuda.empty_cache()
-    MODEL_NAME = "deepseek-ai/DeepSeek-OCR"
+    MODEL_NAME = "deepseek-ai/DeepSeek-OCR-2"
     print("  Dang load " + MODEL_NAME + " (lan dau tai ~6.7GB)...")
     tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME, trust_remote_code=True, use_fast=True)
     model = AutoModel.from_pretrained(
@@ -495,7 +495,7 @@ FINAL_PATH.write_text(portable, encoding="utf-8")
 image_summary = write_image_report(image_plan, WORK_DIR)
 metrics = {
     "pipeline": "attachment_pandoc_deepseek_ocr",
-    "model": "deepseek-ai/DeepSeek-OCR",
+    "model": "deepseek-ai/DeepSeek-OCR-2",
     "dtype": "bfloat16",
     "attention": "eager",
     "native_formulas": n_formulas,

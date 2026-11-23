@@ -1,4 +1,4 @@
-"""One-screen UI for the attachment's Pandoc + DeepSeek-OCR worker."""
+"""One-screen UI for the Pandoc + DeepSeek-OCR-2 worker."""
 from __future__ import annotations
 
 import base64
@@ -280,12 +280,12 @@ def run_job(source, root, worker_source, emit=print):
             log.write("Source: " + str(source) + "\n")
             dependencies = ensure_dependencies(root, log, emit)
             setup_s = time.perf_counter() - started
-            emit("Đang chạy đúng pipeline Pandoc + DeepSeek-OCR đã gửi…")
+            emit("Đang chạy pipeline Pandoc + DeepSeek-OCR-2…")
             stream_command(
                 [sys.executable, "-u", str(worker), "--input", str(copied), "--output", str(job / "result"),
                  "--title", re.sub(r"^[0-9a-f]{16}-", "", source.stem)],
                 env=child_environment(dependencies), cwd=job, log=log, emit=emit,
-                step="Pandoc + DeepSeek-OCR",
+                step="Pandoc + DeepSeek-OCR-2",
             )
         results = job / "result"
         if not (results / "final.md").is_file():
@@ -345,7 +345,7 @@ class HybridApp:
         ])], selected_index=None)
         alternative.set_title(0, "Hoặc chọn DOCX đã có trên Kaggle")
         self.view = widgets.VBox([
-            widgets.HTML("<h3>DOCX → Pandoc + DeepSeek-OCR</h3><p>Chọn file đề, chờ hiện tên file, rồi bấm <b>Chạy OCR</b>.</p>"
+            widgets.HTML("<h3>DOCX → Pandoc + DeepSeek-OCR-2</h3><p>Chọn file đề, chờ hiện tên file, rồi bấm <b>Chạy OCR</b>.</p>"
                          "<small>Bản 5 · trạng thái trực tiếp mỗi 5 giây</small>"),
             self.gpu, self.upload, alternative, self.status, self.run_button,
             widgets.HTML("<b>Nhật ký chi tiết</b> (cuộn trong khung bên dưới)"), self.logs, self.results,
@@ -456,7 +456,7 @@ class HybridApp:
             phase = "Cài thư viện OCR riêng — chưa chạy OCR"
         match = re.search(r"BUOC\s+([1-4])\s*:", clean)
         if match:
-            phase = {"1": "Bóc DOCX / chuẩn bị ảnh", "2": "Tải / nạp model DeepSeek-OCR",
+            phase = {"1": "Bóc DOCX / chuẩn bị ảnh", "2": "Tải / nạp model DeepSeek-OCR-2",
                      "3": "Nhận dạng ảnh OCR", "4": "Ghép kết quả OCR"}[match[1]]
         image = re.match(r"\[(\d+)/(\d+)\]", clean)
         if image and self.phase.startswith("Nhận dạng"):
